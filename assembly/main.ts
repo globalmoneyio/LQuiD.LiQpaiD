@@ -15,8 +15,10 @@
  *
  */
 
-import { Context, logging, storage, u128 } from "near-sdk-as";
+
+import { Context, logging, storage, u128, PersistentMap } from "near-sdk-as";
 import { 
+  ERR_INVALID_ACCOUNT,
   ERR_CDP_INACTIVE,
   ERR_IN_RECOVERY,
   ERR_ICR_BELOW_MCR,
@@ -34,8 +36,7 @@ import {
 } from './events'
 
 import { 
-  PostedMessage, messages, TroveMgr, PoolMgr
-  
+  CDP, CDPs, TroveMgr, PoolMgr
 } from "./model";
 
 var cdpManager: TroveMgr;
@@ -60,6 +61,15 @@ export function init(initialOwner: string): void {
   poolManager = new PoolMgr();
 }
 
+export function getCDPs(): PersistentMap<AccountId, CDP> {
+  return CDPs
+}
+
+export function get_cdp(owner_id: AccountId): CDP {
+  assert(CDPs.contains(owner_id), ERR_INVALID_ACCOUNT)
+  return CDPs.getSome(owner_id)
+}
+
 // payable
 export function openLoan(_CLVAmount: Amount) { 
   let user: AccountId = Context.sender; 
@@ -82,7 +92,6 @@ export function openLoan(_CLVAmount: Amount) {
   cdpManager.increaseCDPColl(user, value);
   cdpManager.increaseCDPDebt(user, _CLVAmount);
   
-  cdpManager.updateRewardSnapshots(user); 
   let stake: Amount = cdpManager.updateStakeAndTotalStakes(user); 
   
   // sortedCDPs.insert(user, ICR, price, _hint, _hint); 
@@ -110,25 +119,17 @@ export function addColl(_user: AccountId) {
 
       isFirstCollDeposit = true; 
       cdpManager.setCDPStatus(_user, 1);
-  } 
-
-  cdpManager.applyPendingRewards(_user);
- 
+  }  
   // Update the CDP's coll and stake
   let newColl: Amount = cdpManager.increaseCDPColl(_user, value);
   let stake: u128 = cdpManager.updateStakeAndTotalStakes(_user);
-  let newICR: u128 = cdpManager.getCurrentICR(_user, price);
-
-  if (isFirstCollDeposit) { 
-      // sortedCDPs.insert(_user, newICR, price, _hint, _hint);
+  
+  if (isFirstCollDeposit) {     
       let arrayIndex: u128 = cdpManager.addCDPOwnerToArray(_user);
       recordCreatedEvent(_user, arrayIndex);
-  } else {
-      // sortedCDPs.reInsert(_user, newICR, price, _hint, _hint);  
   }
-
   // Tell PM to move the ether to the Active Pool
-  poolManager.addColl.value(value)();
+  poolManager.addColl(value);
 
   let debt: Amount = cdpManager.getCDPDebt(_user);
   recordUpdatedEvent(_user, debt, newColl, stake);

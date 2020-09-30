@@ -29,23 +29,16 @@ export class PostedMessage {
  * The parameter to the constructor needs to be unique across a single contract.
  * It will be used as a prefix to all keys required to store data in the storage.
  */
-
-export const messages = new PersistentVector<PostedMessage>("m");
+// export const messages = new PersistentVector<PostedMessage>("m");
 
 const balances = new PersistentMap<string, u64>("b:");
 const approves = new PersistentMap<string, u64>("a:");
 
-/*
-const actPoolCltrl = new PersistentMap<string, u128>("aPc");
-const actPoolDebt = new PersistentMap<string, u128>("aPd");
-const defPoolCltrl = new PersistentMap<string, u128>("dPc");
-const defPoolDebt = new PersistentMap<string, u128>("dPd");
-*/
-
-const CDPs = new PersistentMap<string, CDP>("cdps");
+export const CDPs = new PersistentMap<AccountId, CDP>("cdps");
 
 // Store the necessary data for a Collateralized Debt Position (CDP)
-class CDP {
+@nearBindgen
+export class CDP {
   debt: u128;
   coll: u128;
   stake: u128;
@@ -58,8 +51,16 @@ export enum Status { nonExistent, active, closed }
 
 @nearBindgen
 export class TroveMgr {
- 
-  constructor() {}
+  
+  // snapshot of the value of totalStakes immediately after the last liquidation
+  totalStakes: u128;  
+
+  // snapshot of the total collateral in ActivePool and DefaultPool, immediately after the last liquidation.
+  totalCollateral: u128;    
+
+  constructor() {
+
+  }
 
   getCDPStatus(address: AccountId): u16 {
     let cdp: CDP = CDPs.getSome(address);
@@ -77,7 +78,6 @@ export class TroveMgr {
 
     CDPs.set(address, cdp);
   }
-
   increaseCDPColl(_user: AccountId, _collIncrease: Amount): Amount  {
     var cdp: CDP = CDPs.getSome(_user);
     let newColl: u128 = u128.add(cdp.coll, _collIncrease);
@@ -106,6 +106,37 @@ export class TroveMgr {
     CDPs.set(_user, cdp);
     return newDebt;
   }
+  updateStakeAndTotalStakes(_user: AccountId) {
+    var cdp: CDP = CDPs.getSome(_user);
+    var newStake: u128; 
+    
+    if (this.totalCollateral == u128.Zero) {
+        newStake = cdp.coll;
+    } else {
+        newStake = u128.mul(cdp.coll, this.totalStakes);
+        newStake = u128.div(newStake, this.totalCollateral);
+    }
+    
+    let oldStake: u128 = cdp.stake;
+    cdp.stake = newStake;
+    
+    this.totalStakes = u128.sub(this.totalStakes, oldStake);
+    this.totalStakes = u128.add(this.totalStakes, newStake);
+  
+    return newStake;
+  }
+  // Return the current collateral ratio (ICR) of a given CDP
+  getCurrentICR(_user: AccountId, _price: u128): u128 {
+    uint pendingETHReward = _computePendingETHReward(_user); 
+    uint pendingCLVDebtReward = _computePendingCLVDebtReward(_user); 
+    
+    uint currentETH = CDPs[_user].coll.add(pendingETHReward); 
+    uint currentCLVDebt = CDPs[_user].debt.add(pendingCLVDebtReward); 
+   
+    uint ICR = Math._computeICR (currentETH, currentCLVDebt, _price);  
+    return ICR;
+}
+ 
 }
 
 @nearBindgen
@@ -137,11 +168,15 @@ export class PoolMgr {
  
 
 class Pool {
-  getETH() {
+  NEAR: Amount;  // deposited ether tracker
+  LUSD: Amount;  // total outstanding CDP debt
+    
+  getNEAR() {
+
 
   }
   
-  getCLV() {
+  getLUSD() {
 
   }
 }
