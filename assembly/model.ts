@@ -1,40 +1,8 @@
-import { Account } from "near-api-js";
+
 import { context, u128, PersistentVector, PersistentMap } from "near-sdk-as";
-import { AccountId, Amount } from "./main";
- 
-/** 
- * Exporting a new class PostedMessage so it can be used outside of this file.
- */
-@nearBindgen
-export class Word {
-  lang: string = "en-us";
-  constructor(public text: string, lang: string = "en-us") {
-    this.lang = lang;
-  }
-}
-
-@nearBindgen
-export class PostedMessage {
-    premium: boolean;
-    sender: string;
-    constructor(public text: string) {
-      this.premium = context.attachedDeposit >= u128.from('10000000000000000000000');
-      this.sender = context.sender;
-    }
-  }
-
-/** 
- * collections.vector is a persistent collection. Any changes to it will
- * be automatically saved in the storage.
- * The parameter to the constructor needs to be unique across a single contract.
- * It will be used as a prefix to all keys required to store data in the storage.
- */
-// export const messages = new PersistentVector<PostedMessage>("m");
-
-const balances = new PersistentMap<string, u64>("b:");
-const approves = new PersistentMap<string, u64>("a:");
-
-export const CDPs = new PersistentMap<AccountId, CDP>("cdps");
+import { ERR_USER_EXISTS } from './errors'
+export type AccountId = string
+export type Amount = u128
 
 // Store the necessary data for a Collateralized Debt Position (CDP)
 @nearBindgen
@@ -43,11 +11,35 @@ export class CDP {
   coll: u128;
   stake: u128;
   status: Status;
-  arrayIndex: u128;
+  arrayIndex: usize;
+}
+export enum Status { nonExistent, active, closed }
+
+/** 
+ * collections.vector is a persistent collection. Any changes to it will
+ * be automatically saved in the storage.
+ * The parameter to the constructor needs to be unique across a single contract.
+ * It will be used as a prefix to all keys required to store data in the storage.
+ */
+export const CDPOwners = new PersistentVector<AccountId>("owners");
+
+export const CDPs = new PersistentMap<AccountId, CDP>("cdps");
+
+export function _computeICR(_coll: u128, _debt: u128, _price: u128): u128 {
+  if (_debt > u128.Zero) {
+      let newCollRatio: u128 = u128.mul(_coll, _price);
+      return u128.div(newCollRatio, _debt);
+  }
+  // Return the maximal value for uint256 if the CDP has a debt of 0
+  else if (_debt == u128.Zero) {
+      return u128.Max; 
+  }
+  return u128.Zero;
 }
 
-// --- Data structures ---
-export enum Status { nonExistent, active, closed }
+export function getPrice() {
+  return Math.floor(Math.random() * Math.floor(500));
+}
 
 @nearBindgen
 export class TroveMgr {
@@ -61,10 +53,22 @@ export class TroveMgr {
   constructor() {
 
   }
-
+  addCDPOwnerToArray(_user: AccountId): usize {
+    let index: usize = CDPOwners.length;
+    assert(!CDPs.contains(_user), ERR_USER_EXISTS);
+    CDPOwners.push(_user);
+    var cdp: CDP = new CDP();
+    cdp.arrayIndex = index;
+    CDPs.set(_user, cdp);
+    return index;
+  }
   getCDPStatus(address: AccountId): u16 {
-    let cdp: CDP = CDPs.getSome(address);
-    return cdp.status
+    var cdp: CDP;
+    if(CDPs.contains(address)) {
+      cdp = CDPs.getSome(address);
+      return cdp.status
+    }
+    return 0;
   }
   setCDPStatus(address: AccountId, _num: u16): void {
     var cdp: CDP = CDPs.getSome(address);
@@ -125,44 +129,67 @@ export class TroveMgr {
   
     return newStake;
   }
+  closeCDP(_user: AccountId): void {
+    let cdp: CDP = CDPs.getSome(_user);
+    cdp.status = Status.closed;
+    cdp.coll = u128.Zero;
+    cdp.debt = u128.Zero;
+    this.totalStakes = u128.sub(this.totalStakes, cdp.stake);
+    cdp.stake = u128.Zero;
+    CDPs.set(_user, cdp);
+    CDPOwners.swap_remove(cdp.arrayIndex);
+  }
+  removeStake() {
+
+  }
   // Return the current collateral ratio (ICR) of a given CDP
   getCurrentICR(_user: AccountId, _price: u128): u128 {
-    uint pendingETHReward = _computePendingETHReward(_user); 
-    uint pendingCLVDebtReward = _computePendingCLVDebtReward(_user); 
-    
-    uint currentETH = CDPs[_user].coll.add(pendingETHReward); 
-    uint currentCLVDebt = CDPs[_user].debt.add(pendingCLVDebtReward); 
-   
-    uint ICR = Math._computeICR (currentETH, currentCLVDebt, _price);  
-    return ICR;
-}
- 
+    return _computeICR (this.getCDPColl(_user), this.getCDPDebt(_user), _price);      
+  }
+  getCDPColl(_user: AccountId): Amount {
+    let cdp: CDP = CDPs.getSome(_user);
+    return cdp.coll;
+  }
+  getCDPStake(_user: AccountId): Amount {
+    let cdp: CDP = CDPs.getSome(_user);
+    return cdp.stake;
+  }
+  getCDPDebt(_user: AccountId): Amount {
+    let cdp: CDP = CDPs.getSome(_user);
+    return cdp.debt;
+  }
 }
 
 @nearBindgen
 export class PoolMgr {
   activeColl: u128;
   activeDebt: u128;
-   
-  constructor() {}
+  
+  activePool: Pool;
+  defaultPool: Pool;
+
+  constructor() {
+    this.activePool = new Pool();
+    this.defaultPool = new Pool();
+  }
 
   withdrawCLV(_account: AccountId, _CLV: Amount) { // TODO
-    activePool.increaseCLV(_CLV);  
+    this.activePool.increaseLUSD(_CLV);  
     CLV.mint(_account, _CLV);  
   }
 
   repayCLV(_account: AccountId, _CLV: Amount) { // TODO
-    activePool.decreaseCLV(_CLV);
+    this.activePool.decreaseLUSD(_CLV);
     CLV.burn(_account, _CLV);
   }
 
   addColl(_NEAR: Amount) { // payable
     // Send ETH to Active Pool and increase its recorded ETH balance
+
   }
-  
   // Transfer the specified amount of ETH to _account and updates the total active collateral
   withdrawColl(_account: AccountId, _NEAR: Amount) { // TODOs
-    activePool.sendETH(_account, _NEAR);
+    this.activePool.sendNEAR(_account, _NEAR);
   }
 }
  
@@ -171,13 +198,16 @@ class Pool {
   NEAR: Amount;  // deposited ether tracker
   LUSD: Amount;  // total outstanding CDP debt
     
-  getNEAR() {
-
+  sendNEAR(_account: AccountId, _amount: Amount) {
+    u128.sub(this.NEAR, _amount);
 
   }
   
-  getLUSD() {
-
+  getNEAR(): Amount {
+    return this.NEAR;
+  }
+  getLUSD(): Amount {
+    return this.LUSD;
   }
 }
 

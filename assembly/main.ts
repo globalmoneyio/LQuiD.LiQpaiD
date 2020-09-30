@@ -15,8 +15,7 @@
  *
  */
 
-
-import { Context, logging, storage, u128, PersistentMap } from "near-sdk-as";
+import { Context, u128, PersistentMap } from "near-sdk-as";
 import { 
   ERR_INVALID_ACCOUNT,
   ERR_CDP_INACTIVE,
@@ -36,33 +35,34 @@ import {
 } from './events'
 
 import { 
-  CDP, CDPs, TroveMgr, PoolMgr
+  AccountId, Amount, CDP, CDPs, TroveMgr, PoolMgr, _computeICR, getPrice, CDPOwners
 } from "./model";
 
 var cdpManager: TroveMgr;
 var poolManager: PoolMgr;
-var priceFeedAddress: string;
+
 
 const CLV = "clv.testnet";
+// const priceFeedAddress;
 const DENOM = 1000000000000000000;
 const MCR = 1100000000000000000; // Minimal collateral ratio.
 const CCR = 1500000000000000000; // Critical system collateral ratio. If the total system collateral (TCR) falls below the CCR, Recovery Mode is triggered.
 const MIN_COLL_IN_USD = 20000000000000000000;
 
-export type AccountId = string
-export type Amount = u128
-
 // const result = new Array<PostedMessage>(numMessages);
-
-// --- Borrower Trove Operations ---
 
 export function init(initialOwner: string): void {
   cdpManager = new TroveMgr();
   poolManager = new PoolMgr();
 }
 
-export function getCDPs(): PersistentMap<AccountId, CDP> {
-  return CDPs
+export function getCDPs(): Map<AccountId, CDP> {
+  let map: Map<AccountId, CDP> = new Map<AccountId, CDP>();
+  for (let i: usize = 0; i < CDPOwners.length; i++) {
+    let owner: AccountId = CDPOwners[i];
+    map.set(owner, CDPs.getSome(owner));
+  }
+  return map;
 }
 
 export function get_cdp(owner_id: AccountId): CDP {
@@ -74,7 +74,7 @@ export function get_cdp(owner_id: AccountId): CDP {
 export function openLoan(_CLVAmount: Amount) { 
   let user: AccountId = Context.sender; 
   let value: Amount = Context.attachedDeposit;
-  let price: u128 = u128.from(42); //TODO priceFeed.getPrice(); 
+  let price: u128 = u128.from(getPrice());
 
   _requireValueIsGreaterThan20Dollars(value, price);
   
@@ -84,7 +84,7 @@ export function openLoan(_CLVAmount: Amount) {
       _requireNotInRecoveryMode();
       _requireICRisAboveMCR(ICR);
 
-      _requireNewTCRisAboveCCR(<i64>value, <i64>_CLVAmount, price); //TODO
+      _requireNewTCRisAboveCCR(value, true, _CLVAmount, true, price); 
   }
   
   // Update loan properties
@@ -93,9 +93,8 @@ export function openLoan(_CLVAmount: Amount) {
   cdpManager.increaseCDPDebt(user, _CLVAmount);
   
   let stake: Amount = cdpManager.updateStakeAndTotalStakes(user); 
-  
-  // sortedCDPs.insert(user, ICR, price, _hint, _hint); 
-  let arrayIndex: u128 = cdpManager.addCDPOwnerToArray(user);
+
+  let arrayIndex = cdpManager.addCDPOwnerToArray(user);
   recordCreatedEvent(user, arrayIndex);
   
   // Tell PM to move the ether to the Active Pool, and mint CLV to the borrower
@@ -110,7 +109,7 @@ export function openLoan(_CLVAmount: Amount) {
 export function addColl(_user: AccountId) {
   var isFirstCollDeposit: bool = false;
   let value: Amount = Context.attachedDeposit;
-  let price: u128 = u128.from(42); // TODO priceFeed.getPrice();
+  let price: u128 = u128.from(getPrice());
   let status: u16 = cdpManager.getCDPStatus(_user);
 
   // If non-existent or closed, open a new trove
@@ -125,7 +124,7 @@ export function addColl(_user: AccountId) {
   let stake: u128 = cdpManager.updateStakeAndTotalStakes(_user);
   
   if (isFirstCollDeposit) {     
-      let arrayIndex: u128 = cdpManager.addCDPOwnerToArray(_user);
+      let arrayIndex = cdpManager.addCDPOwnerToArray(_user);
       recordCreatedEvent(_user, arrayIndex);
   }
   // Tell PM to move the ether to the Active Pool
@@ -143,16 +142,13 @@ export function withdrawColl(_amount: Amount) {
   _requireCDPisActive(status);
   _requireNotInRecoveryMode();
  
-  let price: u128 = u128.from(42); // TODO priceFeed.getPrice();
-
-  cdpManager.applyPendingRewards(user);
-
+  let price: u128 = u128.from(getPrice());
   let debt: Amount = cdpManager.getCDPDebt(user);
   let coll: Amount = cdpManager.getCDPColl(user);
   
   _requireCollAmountIsWithdrawable(coll, _amount, price);
 
-  let newICR: u128 = _getNewICRFromTroveChange(coll, debt, -int(_amount), 0, price); //TODO
+  let newICR: u128 = _getNewICRFromTroveChange(coll, debt, _amount, false, u128.Zero, false, price); 
   _requireICRisAboveMCR(newICR);
   
   // Update the CDP's coll and stake
@@ -161,8 +157,6 @@ export function withdrawColl(_amount: Amount) {
 
   if (newColl == u128.Zero) { 
       cdpManager.closeCDP(user);  
-  }  else { 
-      // sortedCDPs.reInsert(user, newICR, price, _hint, _hint);
   }
 
   // Remove _amount ETH from ActivePool and send it to the user
@@ -172,7 +166,7 @@ export function withdrawColl(_amount: Amount) {
 }
 
 // Withdraw CLV tokens from a CDP: mint new CLV to the owner, and increase the debt accordingly
-export function withdrawCLV(_amount: u128) {
+export function withdrawCLV(_amount: Amount) {
   let user: AccountId = Context.sender; 
   let status: u16 = cdpManager.getCDPStatus(user);
 
@@ -180,23 +174,19 @@ export function withdrawCLV(_amount: u128) {
   _requireNonZeroAmount(_amount); 
   _requireNotInRecoveryMode();
   
-  let price: u128 = u128.from(42); // TODO priceFeed.getPrice();
-  cdpManager.applyPendingRewards(user);
+  let price: u128 = u128.from(getPrice());
 
   let debt: Amount = cdpManager.getCDPDebt(user);
   let coll: Amount = cdpManager.getCDPColl(user);
   
-  let newICR: u128 = _getNewICRFromTroveChange(coll, debt, 0, int(_amount), price); //TODO
+  let newICR: u128 = _getNewICRFromTroveChange(coll, debt, u128.Zero, false, _amount, true, price);
   _requireICRisAboveMCR(newICR);
 
-  _requireNewTCRisAboveCCR(0, int(_amount), price); //TODO
+  _requireNewTCRisAboveCCR(u128.Zero, false, _amount, true, price); 
   
   // Increase the CDP's debt
   let newDebt: Amount = cdpManager.increaseCDPDebt(user, _amount);
  
-  // Update CDP's position in sortedCDPs
-  // sortedCDPs.reInsert(user, newICR, price, _hint, _hint);
-
   // Mint the given amount of CLV to the owner's address and add them to the ActivePool
   poolManager.withdrawCLV(user, _amount);
   
@@ -210,20 +200,11 @@ export function repayCLV(_amount: u128) {
   let status: u16 = cdpManager.getCDPStatus(user);
   _requireCDPisActive(status);
 
-  let price: u128 = u128.from(42); // TODO priceFeed.getPrice();
-  cdpManager.applyPendingRewards(user);
-
   let debt: Amount = cdpManager.getCDPDebt(user);
-  _requireCLVRepaymentAllowed(debt, -int(_amount)); //TODO
+  _requireCLVRepaymentAllowed(debt, _amount);
   
   // Update the CDP's debt
   let newDebt: Amount = cdpManager.decreaseCDPDebt(user, _amount);
- 
-  let newICR: u128 = cdpManager.getCurrentICR(user, price);
-  
-  // Update CDP's position in sortedCDPs
-  // sortedCDPs.reInsert(user, newICR, price, _hint, _hint);
-
   // Burn the received amount of CLV from the user's balance, and remove it from the ActivePool
   poolManager.repayCLV(user, _amount);
   
@@ -237,13 +218,10 @@ export function closeLoan() {
   let status: u16 = cdpManager.getCDPStatus(user);
   _requireCDPisActive(status);
   _requireNotInRecoveryMode();
-
-  cdpManager.applyPendingRewards(user);
   
   let debt: Amount = cdpManager.getCDPDebt(user);
   let coll: Amount = cdpManager.getCDPColl(user);
 
-  cdpManager.removeStake(user);
   cdpManager.closeCDP(user);
 
   // Tell PM to burn the debt from the user's balance, and send the collateral back to the user
@@ -256,51 +234,46 @@ export function closeLoan() {
 // payable
 /* If ether is sent, the operation is considered as an increase in ether, and the first parameter 
 _collWithdrawal is ignored  */
-export function adjustLoan(_collWithdrawal: Amount, int _debtChange) {
+export function adjustLoan(_collWithdrawal: Amount, _debtChange: u128, _isDebtIncrease: bool) {
   let user: AccountId = Context.sender; 
   let value: Amount = Context.attachedDeposit;
 
   _requireCDPisActive(cdpManager.getCDPStatus(user));
   _requireNotInRecoveryMode();
   
-  let price: u128 = u128.from(42); // TODO priceFeed.getPrice();
-
-  cdpManager.applyPendingRewards(user);
+  let price: u128 = u128.from(getPrice());
 
   // If Ether is sent, grab the amount. Otherwise, grab the specified collateral withdrawal
-  int collChange = (value != u128.Zero) ? int(value) : -int(_collWithdrawal);
+  var collChange: u128 = _collWithdrawal;
+  var isCollIncrease: bool = false;
+  if (value != u128.Zero) {
+    collChange = value;
+    isCollIncrease = true;
+  }
 
   let debt: Amount = cdpManager.getCDPDebt(user);
   let coll: Amount = cdpManager.getCDPColl(user);
- 
-  let newICR: u128 = _getNewICRFromTroveChange(coll, debt, collChange, _debtChange, price);
+  let newICR: u128 = _getNewICRFromTroveChange(coll, debt, collChange, isCollIncrease,_debtChange, _isDebtIncrease, price);
  
   // --- Checks --- 
   _requireICRisAboveMCR(newICR);
-  _requireNewTCRisAboveCCR(collChange, _debtChange, price);
-  _requireCLVRepaymentAllowed(debt, _debtChange);
+  _requireNewTCRisAboveCCR(collChange, isCollIncrease, _debtChange, _isDebtIncrease, price);
+  if (!_isDebtIncrease) { _requireCLVRepaymentAllowed(debt, _debtChange); }
   _requireCollAmountIsWithdrawable(coll, _collWithdrawal, price);
 
   //  --- Effects --- 
-  let newColl: Amount = _updateTroveColl(user, collChange);
-  let newDebt: Amount = _updateTroveDebt(user, _debtChange);
-  
+  let newColl: Amount = _updateTroveColl(user, collChange, isCollIncrease);
+  let newDebt: Amount = _updateTroveDebt(user, _debtChange, _isDebtIncrease);
   let stake: u128 = cdpManager.updateStakeAndTotalStakes(user);
  
-  // Close a CDP if it is empty, otherwise, re-insert it in the sorted list
+  // Close a CDP if it is empty, otherwise
   if (newDebt == u128.Zero && newColl == u128.Zero) {
       cdpManager.closeCDP(user);
-  } else {
-      // sortedCDPs.reInsert(_msgSender(), newICR, price, _hint, _hint);
-  }
-
-  //  --- Interactions ---
-  _moveTokensAndETHfromAdjustment(user, collChange, _debtChange);   
-
+  } 
+  _moveTokensAndETHfromAdjustment(user, collChange, isCollIncrease, _debtChange, _isDebtIncrease);   
   recordUpdatedEvent(user, newDebt, newColl, stake); 
 }
 
-// ALL DONE!
 // ----------------------------------------------------------------------------
 // Helper functions
 // ----------------------------------------------------------------------------
@@ -336,27 +309,15 @@ function _requireICRisAboveMCR( _newICR: u128): void {
   assert(_newICR >= u128.from(MCR), ERR_ICR_BELOW_MCR);
 }
 
-function _requireValueIsGreaterThan20Dollars(_amount: u128, _price: u128): void {
+function _requireValueIsGreaterThan20Dollars(_amount: Amount, _price: u128): void {
   assert(_getUSDValue(_amount, _price) >= u128.from(MIN_COLL_IN_USD),  
   ERR_COL_VAL_BELOW_MIN);
 }
 
-function _computeICR(_coll: u128, _debt: u128, _price: u128): u128 {
-  if (_debt > u128.Zero) {
-      let newCollRatio: u128 = u128.mul(_coll, _price);
-      return u128.div(newCollRatio, _debt);
-  }
-  // Return the maximal value for uint256 if the CDP has a debt of 0
-  else if (_debt == u128.Zero) {
-      return u128.Max; 
-  }
-  return u128.Zero;
-}
-
 // Update trove's coll and debt based on whether they increase or decrease
-function _updateTroveColl(_user: AccountId, _collChange: i64): Amount {
+function _updateTroveColl(_user: AccountId, _collChange: Amount, _isCollIncrease: bool ): Amount {
   var newColl: Amount;
-  if (_collChange > 0) {
+  if (_isCollIncrease) {
     newColl = cdpManager.increaseCDPColl(_user, u128.from(_collChange));
   } else {
     newColl = cdpManager.decreaseCDPColl(_user, u128.from(_collChange));
@@ -365,9 +326,9 @@ function _updateTroveColl(_user: AccountId, _collChange: i64): Amount {
 }
 
 // Update trove's coll and debt based on whether they increase or decrease
-function _updateTroveDebt(_user: AccountId, _debtChange: i64): Amount {
+function _updateTroveDebt(_user: AccountId, _debtChange: Amount, _isDebtIncrease: bool): Amount {
   var newDebt: Amount
-  if (_debtChange > 0) {
+  if (_isDebtIncrease) {
     newDebt = cdpManager.increaseCDPDebt(_user, u128.from(_debtChange));
   } else {
     newDebt = cdpManager.decreaseCDPDebt(_user, u128.from(_debtChange));
@@ -375,80 +336,81 @@ function _updateTroveDebt(_user: AccountId, _debtChange: i64): Amount {
   return newDebt;
 }
 
-function _moveTokensAndETHfromAdjustment(_user: AccountId, _collChange: i64, _debtChange: i64): void {
-  if (_debtChange > 0){
+function _moveTokensAndETHfromAdjustment(_user: AccountId, _collChange: Amount, _isCollIncrease: bool, _debtChange: Amount, _isDebtIncrease: bool): void {
+  if (_isDebtIncrease){
       poolManager.withdrawCLV(_user, u128.from(_debtChange));
-  } else if (_debtChange < 0) {
+  } else {
       poolManager.repayCLV(_user, u128.from(_debtChange));
   }
-  if (_collChange > 0 ) {
-      poolManager.addColl.value(u128.from(_collChange))();
-  } else if (_collChange < 0) {
+  if (_isCollIncrease) {
+      poolManager.addColl(u128.from(_collChange));
+  } else {
       poolManager.withdrawColl(_user, u128.from(_collChange));
   }
 }
 
-function _requireNewTCRisAboveCCR(_collChange: i64, _debtChange: i64, _price: u128): void {
-  let newTCR: u128 = _getNewTCRFromTroveChange(_collChange, _debtChange, _price);
+function _requireNewTCRisAboveCCR(_collChange: Amount, _isCollIncrease: bool, _debtChange: Amount, _isDebtIncrease: bool, _price: u128): void {
+  let newTCR: u128 = _getNewTCRFromTroveChange(_collChange, _isCollIncrease, _debtChange, _isDebtIncrease, _price);
   assert(newTCR >= u128.from(CCR), ERR_CCR_BELOW_TCR);
 }
 
-function _requireCLVRepaymentAllowed(_currentDebt: Amount, _debtChange: i64): void {
-  if (_debtChange < 0) {
-      assert(u128.from(_debtChange) <= _currentDebt, ERR_REPAY_OVER);
-  }
+function _requireCLVRepaymentAllowed(_currentDebt: Amount, _debtRepayment: Amount): void {
+  assert(_debtRepayment <= _currentDebt, ERR_REPAY_OVER);
 }
 
 // Compute the new collateral ratio, considering the change in coll and debt. Assumes 0 pending rewards.
-function _getNewICRFromTroveChange(_coll: Amount, _debt: Amount, _collChange: i64, _debtChange: i64, _price: u128): u128 {
-  var newColl: Amount = _coll;
-  var newDebt: Amount = _debt;
+function _getNewICRFromTroveChange(
+  _coll: Amount, _debt: Amount,
+  _collChange: Amount, _isCollIncrease: bool,
+  _debtChange: Amount, _isDebtIncrease: bool, _price: u128): u128 {
+    var newColl: Amount = _coll;
+    var newDebt: Amount = _debt;
 
-  if (_collChange > 0) {
-      newColl = u128.add(_coll, u128.from(_collChange));
-  } else if (_collChange < 0) {
-      newColl = u128.sub(_coll, u128.from(_collChange));
-  }
+    if (_isCollIncrease > 0) {
+        newColl = u128.add(_coll, u128.from(_collChange));
+    } else {
+        newColl = u128.sub(_coll, u128.from(_collChange));
+    }
 
-  if (_debtChange > 0) {
-      newDebt = u128.add(_debt, u128.from(_debtChange));
-  } else if (_debtChange < 0) {
-      newDebt = u128.sub(_debt, u128.from(_debtChange));
-  }
+    if (_isDebtIncrease) {
+        newDebt = u128.add(_debt, u128.from(_debtChange));
+    } else {
+        newDebt = u128.sub(_debt, u128.from(_debtChange));
+    }
 
-  return _computeICR (newColl, newDebt, _price);
+    return _computeICR (newColl, newDebt, _price);
 }
 
-function _getNewTCRFromTroveChange(_collChange: i64, _debtChange: i64, _price: u128): u128 { // TODO
+function _getNewTCRFromTroveChange(_collChange: Amount, _isCollIncrease: bool, _debtChange: Amount, _isDebtIncrease: bool, _price: u128): u128 {
   
-  let activeColl: Amount = activePool.getETH();
-  let activeDebt: Amount = activePool.getCLV();
-  let liquidatedColl: Amount = defaultPool.getETH();
-  let closedDebt: Amount = defaultPool.getCLV();
+  let activeColl: Amount = poolManager.activePool.getNEAR();
+  let activeDebt: Amount = poolManager.activePool.getLUSD();
+  let liquidatedColl: Amount = poolManager.defaultPool.getNEAR();
+  let closedDebt: Amount = poolManager.defaultPool.getLUSD();
 
   var totalColl: Amount = u128.add(activeColl, liquidatedColl);
   var totalDebt: Amount = u128.add(activeDebt, closedDebt);
  
-  if (_collChange > 0) {
+  if (_isCollIncrease) {
       totalColl = u128.add(totalColl, u128.from(_collChange));
-  } else if (_collChange < 0) {
+  } else {
       totalColl = u128.sub(totalColl, u128.from(_collChange));
   }
-  if (_debtChange > 0) {
+  if (_isDebtIncrease) {
       totalDebt = u128.add(totalDebt, u128.from(_debtChange));
-  } else if (_debtChange < 0) {
+  } else {
       totalDebt = u128.sub(totalDebt, u128.from(_debtChange));
   }
   return _computeICR (totalColl, totalDebt, _price);
 }
 
-function _checkRecoveryMode(): bool { // TODO
-  let price: u128 = u128.from(42); //TODO priceFeed.getPrice();
+function _checkRecoveryMode(): bool {
+  let price: u128 = u128.from(getPrice());
 
-  let activeColl: Amount = activePool.getETH();
-  let activeDebt: Amount = activePool.getCLV();
-  let liquidatedColl: Amount = defaultPool.getETH();
-  let closedDebt: Amount = defaultPool.getCLV();
+  let activeColl: Amount = poolManager.activePool.getNEAR();
+  let activeDebt: Amount = poolManager.activePool.getLUSD();
+  let liquidatedColl: Amount = poolManager.defaultPool.getNEAR();
+  let closedDebt: Amount = poolManager.defaultPool.getLUSD();
 
   let totalCollateral: Amount = u128.add(activeColl, liquidatedColl);
   let totalDebt: Amount = u128.add(activeDebt, closedDebt); 

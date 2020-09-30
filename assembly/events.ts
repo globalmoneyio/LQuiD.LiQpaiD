@@ -4,7 +4,7 @@ import { Context, u128, PersistentDeque, logging } from "near-sdk-as";
 @nearBindgen
 export class CDPCreatedEvent {
     _user: string;
-    arrayIndex: u128;
+    arrayIndex: usize;
     date: u64;
 }
 
@@ -20,7 +20,7 @@ export class CDPUpdatedEvent {
 export const createdEvents = new PersistentDeque<CDPCreatedEvent>("created");
 export const updatedEvents = new PersistentDeque<CDPUpdatedEvent>("updated");
 
-export function recordCreatedEvent(_user: string, arrayIndex: u128): void {
+export function recordCreatedEvent(_user: string, arrayIndex: usize): void {
     logging.log("[call] recordCreatedEvent(" + _user + ", " + arrayIndex + ")");
     const created = new CDPCreatedEvent();
     created._user = _user;
