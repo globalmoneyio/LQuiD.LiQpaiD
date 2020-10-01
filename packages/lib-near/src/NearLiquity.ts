@@ -220,7 +220,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
           _isDebtIncrease: !change.debtDifference?.negative
         },
         AMPLE_GAS,
-        `${change.collateralDifference?.positive?.absoluteValue?.bigNumber}`
+        `${change.collateralDifference?.positive?.absoluteValue?.bigNumber || 0}`
       )
     );
   }
