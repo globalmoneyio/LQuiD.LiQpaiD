@@ -78,7 +78,7 @@ interface LiquityChangeMethods {
   repayCLV(args: { _amount: BNLike }, gas: BNLike): Promise<void>;
 
   adjustLoan(
-    args: { _collWithdrawal: BNLike; _debtChange: BNLike },
+    args: { _collWithdrawal: BNLike; _debtChange: BNLike; _isDebtIncrease: boolean },
     gas: BNLike,
     amount: BNLike
   ): Promise<void>;
@@ -216,7 +216,8 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
       this.contract.adjustLoan(
         {
           _collWithdrawal: `${change.collateralDifference?.negative?.absoluteValue?.bigNumber || 0}`,
-          _debtChange: `${change.debtDifference?.bigNumber || 0}`
+          _debtChange: `${change.debtDifference?.absoluteValue?.bigNumber || 0}`,
+          _isDebtIncrease: !change.debtDifference?.negative
         },
         AMPLE_GAS,
         `${change.collateralDifference?.positive?.absoluteValue?.bigNumber}`
