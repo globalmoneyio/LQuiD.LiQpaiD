@@ -35,15 +35,17 @@ import {
 } from './events'
 
 import { 
-  AccountId, Amount, CDP, CDPs, TroveMgr, PoolMgr, _computeICR, getPrice, CDPOwners
+  AccountId, Amount, CDP, CDPs, TroveMgr, PoolMgr, _computeICR, getPrice, CDPOwners, min
 } from "./model";
 
 var cdpManager: TroveMgr;
 var poolManager: PoolMgr;
 
-
 const CLV = "clv.testnet";
+const THIS = "globalmoney.testnet"
+
 // const priceFeedAddress;
+
 const DENOM = 1000000000000000000;
 const MCR = 1100000000000000000; // Minimal collateral ratio.
 const CCR = 1500000000000000000; // Critical system collateral ratio. If the total system collateral (TCR) falls below the CCR, Recovery Mode is triggered.
@@ -235,7 +237,7 @@ export function closeLoan() {
 /* If ether is sent, the operation is considered as an increase in ether, and the first parameter 
 _collWithdrawal is ignored  */
 export function adjustLoan(_collWithdrawal: Amount, _debtChange: u128, _isDebtIncrease: bool) {
-  let user: AccountId = Context.sender; 
+  let user: AccountId = Context.sender;
   let value: Amount = Context.attachedDeposit;
 
   _requireCDPisActive(cdpManager.getCDPStatus(user));
@@ -275,8 +277,126 @@ export function adjustLoan(_collWithdrawal: Amount, _debtChange: u128, _isDebtIn
 }
 
 // ----------------------------------------------------------------------------
+// CDP Functions
+// ----------------------------------------------------------------------------
+
+export function liquidate(_user: AccountId) {
+  let price: u128 = u128.from(getPrice());
+  let ICR: u128 = cdpManager.getCurrentICR(_user, price);
+  
+  let recoveryMode = _checkRecoveryMode();
+  _requireCDPisActive(cdpManager.getCDPStatus(_user));
+  
+  if (recoveryMode == true) {
+      _liquidateRecoveryMode(_user, ICR, price);
+  } else if (recoveryMode == false) {
+      _liquidateNormalMode(_user, ICR);
+  }  
+
+}
+
+export function liquidateCDPs(n: u32) {
+
+}
+
+export function batchLiquidateTroves(troveList: AccountId[]) {
+
+}
+
+export function redeemCollateral(_CLVamount: Amount) {
+  var remainingCLV: Amount = _CLVamount;
+  let price: u128 = u128.from(getPrice());
+  var currentUser: AccountId;
+
+  for (let i = 0; i < CDPOwners.length; i++) {
+    if (remainingCLV == u128.Zero)
+      break;
+      
+    currentUser = CDPOwners[i];
+
+    if (cdpManager.getCurrentICR(currentUser, price) < u128.from(MCR)) 
+      continue;
+
+    remainingCLV = u128.sub(remainingCLV, cdpManager.redeemCollateralFromCDP(currentUser, remainingCLV, price));
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Pool functions
+// ----------------------------------------------------------------------------
+
+// deposit stablecoins to Stability Pool
+export function provideToSP(_amount: Amount) {
+
+  
+}
+
+// withdraws the user's accumulated collateral and debt gains from the Stability Pool to their address
+export function withdrawFromSP(_amount: Amount) {
+
+  
+} 
+
+export function withdrawFromSPtoCDP(_user: AccountId) {
+
+
+}
+
+
+// ----------------------------------------------------------------------------
 // Helper functions
 // ----------------------------------------------------------------------------
+function _liquidateNormalMode(_user: AccountId, _ICR: u128) {
+  // If ICR >= MCR, or is last trove, don't liquidate 
+  if (_ICR >= u128.from(MCR) || CDPOwners.length <= 1) { return; }
+ 
+  let cdpDebt = cdpManager.getCDPDebt(_user);
+  let cdpColl = cdpManager.getCDPColl(_user);
+
+  cdpManager.removeStake(_user); 
+
+  _redistributeDebtAndColl(cdpDebt, cdpColl);
+
+  cdpManager.closeCDP(_user);
+  recordUpdatedEvent(_user, u128.Zero, u128.Zero, u128.Zero); 
+}
+
+function _redistributeDebtAndColl(_debt: Amount, _coll: Amount) {
+  let CLVInPool: Amount = poolManager.stablePool.getLUSD();
+  let debtRemainder: Amount;
+  let collRemainder: Amount;
+  
+  // Offset as much debt & collateral as possible against the Stability Pool
+  if (CLVInPool > u128.Zero) { 
+    // If the debt is larger than the deposited CLV, offset an amount of debt corresponding to the latter
+    let debtToOffset = u128.from(Math.min(_debt.as<u64>(), CLVInPool.as<u64>()));  
+    
+    // Collateral to be added in proportion to the debt that is cancelled 
+    var collToAdd = u128.mul(_coll, debtToOffset);
+    collToAdd = u128.div(collToAdd, _debt);
+
+    // Cancel the liquidated CLV debt with the CLV in the stability pool
+    poolManager.stablePool.decreaseLUSD(debtToOffset); 
+    poolManager.repayCLV(THIS, debtToOffset); 
+   
+    // Send ETH from Active Pool to Stability Pool
+    poolManager.activePool.recapNEAR(collToAdd);  
+    poolManager.stablePool.receiveNEAR(collToAdd);  
+
+    debtRemainder = u128.sub(_debt, debtToOffset);
+    collRemainder = u128.sub(_coll, collToAdd);
+  } else {
+    debtRemainder = _debt;
+    collRemainder = _coll;
+  }
+  // Transfer the debt & coll from the Active Pool to the Default Pool
+  poolManager.activePool.decreaseLUSD(debtRemainder);
+  poolManager.activePool.recapNEAR(collRemainder);
+  
+  // TODO assign to everyone
+
+}
+// TODO liquidate recovery mode
 
 function _getUSDValue(_coll: u128, _price: u128): u128 {
   var usdValue: u128 = u128.mul(_coll, _price);
@@ -383,13 +503,8 @@ function _getNewICRFromTroveChange(
 
 function _getNewTCRFromTroveChange(_collChange: Amount, _isCollIncrease: bool, _debtChange: Amount, _isDebtIncrease: bool, _price: u128): u128 {
   
-  let activeColl: Amount = poolManager.activePool.getNEAR();
-  let activeDebt: Amount = poolManager.activePool.getLUSD();
-  let liquidatedColl: Amount = poolManager.defaultPool.getNEAR();
-  let closedDebt: Amount = poolManager.defaultPool.getLUSD();
-
-  var totalColl: Amount = u128.add(activeColl, liquidatedColl);
-  var totalDebt: Amount = u128.add(activeDebt, closedDebt);
+  var totalColl: Amount = poolManager.activePool.getNEAR();
+  var totalDebt: Amount = poolManager.activePool.getLUSD();
  
   if (_isCollIncrease) {
       totalColl = u128.add(totalColl, u128.from(_collChange));
@@ -404,18 +519,16 @@ function _getNewTCRFromTroveChange(_collChange: Amount, _isCollIncrease: bool, _
   return _computeICR (totalColl, totalDebt, _price);
 }
 
+
+// Return the total collateral ratio (TCR) of the system, based on the most recent ETH:USD price
+
 function _checkRecoveryMode(): bool {
   let price: u128 = u128.from(getPrice());
 
   let activeColl: Amount = poolManager.activePool.getNEAR();
   let activeDebt: Amount = poolManager.activePool.getLUSD();
-  let liquidatedColl: Amount = poolManager.defaultPool.getNEAR();
-  let closedDebt: Amount = poolManager.defaultPool.getLUSD();
-
-  let totalCollateral: Amount = u128.add(activeColl, liquidatedColl);
-  let totalDebt: Amount = u128.add(activeDebt, closedDebt); 
-
-  let TCR: u128 = _computeICR (totalCollateral, totalDebt, price); 
+  
+  let TCR: u128 = _computeICR(activeColl, activeDebt, price); 
   
   return TCR < u128.from(CCR);
 }
