@@ -1,3 +1,4 @@
+export const ERR_WITHDRAW_TOO_MUCH = 'Amount must be less than or equal to Stability Pool depsoit'
 export const ERR_INVALID_AMOUNT = 'Amount must be greater than zero'
 export const ERR_INVALID_ACCOUNT = 'Account not found in registry'
 export const ERR_INVALID_ACCOUNT_ID = 'Account Id is not valid'

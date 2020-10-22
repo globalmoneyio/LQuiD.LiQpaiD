@@ -17,11 +17,21 @@ export class CDPUpdatedEvent {
     date: u64;
 }
 
+@nearBindgen
+export class CDPLiquidatedEvent {
+    _user: string;
+    _debt: u128;
+    _coll: u128;
+    _mode: string;
+    date: u64;
+}
+
 export const createdEvents = new PersistentDeque<CDPCreatedEvent>("created");
 export const updatedEvents = new PersistentDeque<CDPUpdatedEvent>("updated");
+export const liquidatedEvents = new PersistentDeque<CDPLiquidatedEvent>("liquidated");
 
-export function recordCreatedEvent(_user: string, arrayIndex: usize): void {
-    logging.log("[call] recordCreatedEvent(" + _user + ", " + arrayIndex + ")");
+export function emitCDPcreatedEvent(_user: string, arrayIndex: usize): void {
+    logging.log("[call] CDPcreatedEvent(" + _user + ", " + arrayIndex + ")");
     const created = new CDPCreatedEvent();
     created._user = _user;
     created.arrayIndex = arrayIndex;
@@ -29,8 +39,8 @@ export function recordCreatedEvent(_user: string, arrayIndex: usize): void {
     createdEvents.pushFront(created);
 }
 
-export function recordUpdatedEvent(_user: string, _debt: u128, _coll: u128, _stake: u128): void {
-    logging.log("[call] recordUpdatedEvent(" + _user + ", " + _debt + ", " + _coll + ", " + _stake + ")");
+export function emitCDPupdatedEvent(_user: string, _debt: u128, _coll: u128, _stake: u128): void {
+    logging.log("[call] CDPupdatedEvent(" + _user + ", " + _debt + ", " + _coll + ", " + _stake + ")");
     const updated = new CDPUpdatedEvent();
     updated._user = _user;
     updated._debt = _debt;
@@ -38,4 +48,15 @@ export function recordUpdatedEvent(_user: string, _debt: u128, _coll: u128, _sta
     updated._stake = _stake;
     updated.date = <u64>Context.blockIndex;
     updatedEvents.pushFront(updated);
+}
+
+export function emitCDPliquidatedEvent(_user: string, _debt: u128, _coll: u128, _mode: string): void {
+    logging.log("[call] CDPliquidatedEvent(" + _user + ", " + _debt + ", " + _coll + ", " + _mode + ")");
+    const liquidated = new CDPLiquidatedEvent();
+    liquidated._user = _user;
+    liquidated._debt = _debt;
+    liquidated._coll = _coll;
+    liquidated._mode = _mode;
+    liquidated.date = <u64>Context.blockIndex;
+    liquidatedEvents.pushFront(liquidated);
 }
