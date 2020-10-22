@@ -56,7 +56,7 @@ export function init(initialOwner: string): void {
 
 export function getCDPs(): Map<AccountId, CDP> {
   let map: Map<AccountId, CDP> = new Map<AccountId, CDP>();
-  for (let i: usize = 0; i < CDPOwners.length; i++) {
+  for (let i = 0; i < CDPOwners.length; i++) {
     let owner: AccountId = CDPOwners[i];
     map.set(owner, CDPs.getSome(owner));
   }
@@ -68,7 +68,7 @@ export function get_cdp(owner_id: AccountId): CDP {
   return CDPs.getSome(owner_id)
 }
 
-export function openLoan(_LQDAmount: Amount) { // payable
+export function openLoan(_LQDAmount: Amount): void { // payable
   let user: AccountId = Context.predecessor; 
   let value: Amount = Context.attachedDeposit;
   let price: u128 = u128.from(getPrice());
@@ -107,7 +107,7 @@ export function openLoan(_LQDAmount: Amount) { // payable
 
 // payable
 // Send ETH as collateral to a CDP
-export function addColl(_user: AccountId) {
+export function addColl(_user: AccountId): void {
   var isFirstCollDeposit: bool = false;
   let value: Amount = Context.attachedDeposit;
   let price: u128 = u128.from(getPrice());
@@ -136,7 +136,7 @@ export function addColl(_user: AccountId) {
 }
 
 // Withdraw ETH collateral from a CDP
-export function withdrawColl(_amount: Amount) {
+export function withdrawColl(_amount: Amount): void {
   let user: AccountId = Context.predecessor; 
   let status = cdpManager.getCDPStatus(user);
 
@@ -167,7 +167,7 @@ export function withdrawColl(_amount: Amount) {
 }
 
 // Withdraw LQD tokens from a CDP: mint new LQD to the owner, and increase the debt accordingly
-export function withdrawLQD(_amount: Amount) {
+export function withdrawLQD(_amount: Amount): void {
   let user: AccountId = Context.predecessor; 
   let status: u16 = cdpManager.getCDPStatus(user);
 
@@ -196,7 +196,7 @@ export function withdrawLQD(_amount: Amount) {
 }
 
 // Repay LQD tokens to a CDP: Burn the repaid LQD tokens, and reduce the debt accordingly
-export function repayLQD(_amount: u128) {
+export function repayLQD(_amount: u128): void {
   let user: AccountId = Context.predecessor; 
   let status: u16 = cdpManager.getCDPStatus(user);
   _requireCDPisActive(status);
@@ -214,7 +214,7 @@ export function repayLQD(_amount: u128) {
   emitCDPupdatedEvent(user, newDebt, coll, stake); 
 }
 
-export function closeLoan() {
+export function closeLoan(): void {
   let user: AccountId = Context.predecessor; 
   let status: u16 = cdpManager.getCDPStatus(user);
   _requireCDPisActive(status);
@@ -235,7 +235,7 @@ export function closeLoan() {
 // payable
 /* If ether is sent, the operation is considered as an increase in ether, and the first parameter 
 _collWithdrawal is ignored  */
-export function adjustLoan(_collWithdrawal: Amount, _debtChange: u128, _isDebtIncrease: bool) {
+export function adjustLoan(_collWithdrawal: Amount, _debtChange: u128, _isDebtIncrease: bool): void {
   let user: AccountId = Context.predecessor;
   let value: Amount = Context.attachedDeposit;
 
@@ -275,11 +275,11 @@ export function adjustLoan(_collWithdrawal: Amount, _debtChange: u128, _isDebtIn
   emitCDPupdatedEvent(user, newDebt, newColl, stake); 
 }
 
-export function redeemCollateral(_LQDamount: Amount) {
+export function redeemCollateral(_LQDamount: Amount): void {
   var remainingLQD = _LQDamount;
   let price = getPrice();
   var currentUser: AccountId;
-  var newLength: usize = 0;
+  var newLength = 0;
 
   for (let i = 0; i < CDPOwners.length; i++) {
     if (remainingLQD == u128.Zero)
@@ -298,7 +298,7 @@ export function redeemCollateral(_LQDamount: Amount) {
 }
 
 // deposit stablecoins to Stability Pool
-export function provideToSP(_amount: Amount) {
+export function provideToSP(_amount: Amount): void {
   let user: AccountId = Context.predecessor;
   this.poolManager.depositStableLQD(user, _amount);
   
@@ -312,7 +312,7 @@ export function provideToSP(_amount: Amount) {
 }
 
 // withdraws the user's accumulated collateral and debt gains from the Stability Pool to their address
-export function withdrawFromSP(_amount: Amount) {
+export function withdrawFromSP(_amount: Amount): void {
   let user: AccountId = Context.predecessor;
   this.poolManager.withdrawStableLQD(user, _amount);
   
@@ -333,7 +333,7 @@ export function withdrawFromSP(_amount: Amount) {
   // emit UserDepositChanged(user, CLVremainder);
 } 
 
-export function liquidate(_user: AccountId) {
+export function liquidate(_user: AccountId): void {
   _requireCDPisActive(cdpManager.getCDPStatus(_user));
 
   let price = getPrice();
@@ -369,13 +369,13 @@ export function liquidate(_user: AccountId) {
 // ----------------------------------------------------------------------------
 
 function _applyPendingRewards(_user: AccountId): void {
-  if (this.cdpManager.hasPendingFunds(_user)) { 
+  if (this.cdpManager.hasPendingGains(_user)) { 
     _requireCDPisActive(cdpManager.getCDPStatus(_user));
     let pendingNEAReward = this.cdpManager.getPendingCollateralGain(_user);
     let pendingLQDebtPenalty = this.cdpManager.getPendingLQDebtPenalty(_user);  
     // Apply pending rewards to trove's state
-    this.cdpManager.increaseCDPColl(pendingNEAReward);
-    this.cdpManager.increaseCDPDebt(pendingLQDebtPenalty);
+    this.cdpManager.increaseCDPColl(_user, pendingNEAReward);
+    this.cdpManager.increaseCDPDebt(_user, pendingLQDebtPenalty);
     // TODO
     // _updateCDPRewardSnapshots(_user)
     // Tell PM to transfer from DefaultPool to ActivePool
@@ -513,7 +513,7 @@ function _liquidateRecoveryMode( _user: AccountId, _ICR: u128, _price: u128, _st
   return V;
 }
 
-function _redistributeDebtAndColl(_debt: Amount, _coll: Amount) {
+function _redistributeDebtAndColl(_debt: Amount, _coll: Amount): void {
   if (!_debt) { return; }
 
   let LQDInPool: Amount = poolManager.getStableLQD();
@@ -663,7 +663,7 @@ function _getNewICRFromTroveChange(
     var newColl: Amount = _coll;
     var newDebt: Amount = _debt;
 
-    if (_isCollIncrease > 0) {
+    if (_isCollIncrease) {
         newColl = u128.add(_coll, _collChange);
     } else {
         newColl = u128.sub(_coll, _collChange);
