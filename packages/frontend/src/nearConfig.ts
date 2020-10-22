@@ -4,5 +4,6 @@ export default {
   walletUrl: "https://wallet.testnet.near.org",
   helperUrl: "https://helper.testnet.near.org",
   explorerUrl: "https://explorer.testnet.near.org",
-  contractId: "globalmoney.testnet"
+  contractId: "globalmoney.testnet",
+  tokenId: "LQD.testnet"
 };

@@ -31,8 +31,6 @@ interface LiquityViewMethods {
     arrayIndex: string;
   }>;
 
-  getCDPOwnersCount(): Promise<string>;
-
   getPrice(): Promise<string>;
 
   getActiveColl(): Promise<string>;
@@ -50,8 +48,6 @@ interface LiquityViewMethods {
   getCurrentETHGain(args: { _user: string }): Promise<string>;
 
   getStabilityPoolCLV(): Promise<string>;
-
-  balanceOf(args: { account: string }): Promise<string>;
 
   getCDPs(): Promise<{
     [owner: string]: {
@@ -97,47 +93,65 @@ interface LiquityChangeMethods {
 
   withdrawFromSPtoCDP(args: { _user: string }, gas: BNLike): Promise<void>;
 
-  transfer(args: { recipient: string; amount: BNLike }, gas: BNLike): Promise<void>;
-
   redeemCollateral(args: { _CLVamount: BNLike }, gas: BNLike): Promise<void>;
 }
 
 type LiquityContract = nearAPI.Contract & LiquityViewMethods & LiquityChangeMethods;
 
-const viewMethods: (keyof LiquityViewMethods)[] = [
-  "get_cdp",
-  "getCDPOwnersCount",
-  "getPrice",
-  "getActiveColl",
-  "getActiveDebt",
-  "getLiquidatedColl",
-  "getClosedDebt",
-  "initialDeposits",
-  "getCompoundedCLVDeposit",
-  "getCurrentETHGain",
-  "getStabilityPoolCLV",
-  "balanceOf",
-  "getCDPs"
-];
+const liquityMethods: {
+  viewMethods: (keyof LiquityViewMethods)[];
+  changeMethods: (keyof LiquityChangeMethods)[];
+} = {
+  viewMethods: [
+    "get_cdp",
+    "getPrice",
+    "getActiveColl",
+    "getActiveDebt",
+    "getLiquidatedColl",
+    "getClosedDebt",
+    "initialDeposits",
+    "getCompoundedCLVDeposit",
+    "getCurrentETHGain",
+    "getStabilityPoolCLV",
+    "getCDPs"
+  ],
 
-const changeMethods: (keyof LiquityChangeMethods)[] = [
-  "openLoan",
-  "closeLoan",
-  "addColl",
-  "withdrawColl",
-  "withdrawCLV",
-  "repayCLV",
-  "adjustLoan",
-  "setPrice",
-  "updatePrice_Testnet",
-  "liquidate",
-  "liquidateCDPs",
-  "provideToSP",
-  "withdrawFromSP",
-  "withdrawFromSPtoCDP",
-  "transfer",
-  "redeemCollateral"
-];
+  changeMethods: [
+    "openLoan",
+    "closeLoan",
+    "addColl",
+    "withdrawColl",
+    "withdrawCLV",
+    "repayCLV",
+    "adjustLoan",
+    "setPrice",
+    "updatePrice_Testnet",
+    "liquidate",
+    "liquidateCDPs",
+    "provideToSP",
+    "withdrawFromSP",
+    "withdrawFromSPtoCDP",
+    "redeemCollateral"
+  ]
+};
+
+interface TokenViewMethods {
+  get_balance(args: { owner_id: string }): Promise<string>;
+}
+
+interface TokenChangeMethods {
+  transfer(args: { new_owner_id: string; amount: BNLike }, gas: BNLike): Promise<void>;
+}
+
+type TokenContract = nearAPI.Contract & TokenViewMethods & TokenChangeMethods;
+
+const tokenMethods: {
+  viewMethods: (keyof TokenViewMethods)[];
+  changeMethods: (keyof TokenChangeMethods)[];
+} = {
+  viewMethods: ["get_balance"],
+  changeMethods: ["transfer"]
+};
 
 export class WrappedNearTransaction {
   private promise: Promise<void>;
@@ -158,14 +172,16 @@ const numberify = (numberString: string) => parseInt(numberString, 10);
 
 export class NearLiquity implements ReadableLiquity, TransactableLiquity<WrappedNearTransaction> {
   private contract: LiquityContract;
+  private token: TokenContract;
   private userAddress: string;
 
-  constructor(account: nearAPI.Account, contractId = "globalmoney.testnet") {
-    this.contract = new nearAPI.Contract(account, contractId, {
-      viewMethods,
-      changeMethods
-    }) as LiquityContract;
-
+  constructor(
+    account: nearAPI.Account,
+    contractId = "globalmoney.testnet",
+    tokenId = "LQD.testnet"
+  ) {
+    this.contract = new nearAPI.Contract(account, contractId, liquityMethods) as LiquityContract;
+    this.token = new nearAPI.Contract(account, tokenId, tokenMethods) as TokenContract;
     this.userAddress = account.accountId;
   }
 
@@ -235,14 +251,12 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     return new WrappedNearTransaction(this.contract.updatePrice_Testnet({}, AMPLE_GAS));
   }
 
-  async liquidate(address: string) {
-    return new WrappedNearTransaction(this.contract.liquidate({ _user: address }, AMPLE_GAS));
+  async liquidate(_user: string) {
+    return new WrappedNearTransaction(this.contract.liquidate({ _user }, AMPLE_GAS));
   }
 
-  async liquidateUpTo(maximumNumberOfTrovesToLiquidate: number) {
-    return new WrappedNearTransaction(
-      this.contract.liquidateCDPs({ _n: maximumNumberOfTrovesToLiquidate }, AMPLE_GAS)
-    );
+  async liquidateUpTo(_n: number) {
+    return new WrappedNearTransaction(this.contract.liquidateCDPs({ _n }, AMPLE_GAS));
   }
 
   async depositQuiInStabilityPool(depositedQui: Decimalish) {
@@ -263,12 +277,9 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     );
   }
 
-  async sendQui(toAddress: string, amount: Decimalish) {
+  async sendQui(new_owner_id: string, amount: Decimalish) {
     return new WrappedNearTransaction(
-      this.contract.transfer(
-        { recipient: toAddress, amount: `${Decimal.from(amount).bigNumber}` },
-        AMPLE_GAS
-      )
+      this.token.transfer({ new_owner_id, amount: `${Decimal.from(amount).bigNumber}` }, AMPLE_GAS)
     );
   }
 
@@ -291,8 +302,8 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     throw new Error("Method not implemented.");
   }
 
-  async getTroveWithoutRewards(address = this.userAddress) {
-    const cdp = await this.contract.get_cdp({ owner_id: address });
+  async getTroveWithoutRewards(owner_id = this.userAddress) {
+    const cdp = await this.contract.get_cdp({ owner_id });
 
     if (numberify(cdp.status) === CDPStatus.active) {
       return new TroveWithPendingRewards({
@@ -326,8 +337,11 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     return trove.applyRewards(totalRedistributed);
   }
 
-  getNumberOfTroves() {
-    return this.contract.getCDPOwnersCount().then(numberify);
+  async getNumberOfTroves() {
+    // XXX shouldn't get every single CDP, but the backend has no function to return the number of CDPs
+    const cdps = await this.contract.getCDPs();
+
+    return Object.keys(cdps).length;
   }
 
   watchNumberOfTroves(onNumberOfTrovesChanged: (numberOfTroves: number) => void): () => void {
@@ -363,11 +377,11 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     throw new Error("Method not implemented.");
   }
 
-  async getStabilityDeposit(address = this.userAddress) {
+  async getStabilityDeposit(_user = this.userAddress) {
     const [deposit, depositAfterLoss, pendingCollateralGain] = await Promise.all([
-      this.contract.initialDeposits({ _user: address }).then(decimalify),
-      this.contract.getCompoundedCLVDeposit({ _user: address }).then(decimalify),
-      this.contract.getCurrentETHGain({ _user: address }).then(decimalify)
+      this.contract.initialDeposits({ _user }).then(decimalify),
+      this.contract.getCompoundedCLVDeposit({ _user }).then(decimalify),
+      this.contract.getCurrentETHGain({ _user }).then(decimalify)
     ]);
 
     return new StabilityDeposit({ deposit, depositAfterLoss, pendingCollateralGain });
@@ -390,8 +404,8 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     throw new Error("Method not implemented.");
   }
 
-  getQuiBalance(address = this.userAddress) {
-    return this.contract.balanceOf({ account: address }).then(decimalify);
+  getQuiBalance(owner_id = this.userAddress) {
+    return this.token.get_balance({ owner_id }).then(decimalify);
   }
 
   watchQuiBalance(onQuiBalanceChanged: (balance: Decimal) => void, address?: string): () => void {
@@ -399,6 +413,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
   }
 
   async getLastTroves(startIdx: number, numberOfTroves: number) {
+    // XXX shouldn't get every single CDP, but there's no way to get a slice from the backend
     const cdps = await this.contract.getCDPs();
 
     return mapCDPsToTroves(cdps)
@@ -407,6 +422,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
   }
 
   async getFirstTroves(startIdx: number, numberOfTroves: number) {
+    // XXX shouldn't get every single CDP, but there's no way to get a slice from the backend
     const cdps = await this.contract.getCDPs();
 
     return mapCDPsToTroves(cdps)

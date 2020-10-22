@@ -19,7 +19,11 @@ type LiquityProviderProps = {
 };
 
 export const LiquityProvider: React.FC<LiquityProviderProps> = ({ children, walletConnection }) => {
-  const liquity = new NearLiquity(walletConnection.account(), nearConfig.contractId);
+  const liquity = new NearLiquity(
+    walletConnection.account(),
+    nearConfig.contractId,
+    nearConfig.tokenId
+  );
 
   return (
     <LiquityContext.Provider
