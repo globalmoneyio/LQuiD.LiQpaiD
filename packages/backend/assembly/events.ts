@@ -1,5 +1,6 @@
 
 import { Context, u128, PersistentDeque, logging } from "near-sdk-as";
+import { AccountId } from "./model";
 
 @nearBindgen
 export class CDPCreatedEvent {
@@ -31,7 +32,7 @@ export const updatedEvents = new PersistentDeque<CDPUpdatedEvent>("updated");
 export const liquidatedEvents = new PersistentDeque<CDPLiquidatedEvent>("liquidated");
 
 export function emitCDPcreatedEvent(_user: string, arrayIndex: usize): void {
-    logging.log("[call] CDPcreatedEvent(" + _user + ", " + arrayIndex + ")");
+    logging.log("[call] CDPcreatedEvent(" + _user + ", " + arrayIndex.toString() + ")");
     const created = new CDPCreatedEvent();
     created._user = _user;
     created.arrayIndex = arrayIndex;
@@ -39,8 +40,18 @@ export function emitCDPcreatedEvent(_user: string, arrayIndex: usize): void {
     createdEvents.pushFront(created);
 }
 
+export function emitSPdepositUpdated(_user: AccountId, _debtChange: u128): void {
+    
+}
+
 export function emitCDPupdatedEvent(_user: string, _debt: u128, _coll: u128, _stake: u128): void {
-    logging.log("[call] CDPupdatedEvent(" + _user + ", " + _debt + ", " + _coll + ", " + _stake + ")");
+    logging.log(
+        "[call] CDPupdatedEvent(" 
+        + _user + ", "
+        + _debt.toString() + ", " 
+        + _coll.toString() + ", " 
+        + _stake.toString() + ")"
+    ); 
     const updated = new CDPUpdatedEvent();
     updated._user = _user;
     updated._debt = _debt;
@@ -51,7 +62,13 @@ export function emitCDPupdatedEvent(_user: string, _debt: u128, _coll: u128, _st
 }
 
 export function emitCDPliquidatedEvent(_user: string, _debt: u128, _coll: u128, _mode: string): void {
-    logging.log("[call] CDPliquidatedEvent(" + _user + ", " + _debt + ", " + _coll + ", " + _mode + ")");
+    logging.log(
+        "[call] CDPliquidatedEvent(" 
+        + _user + ", " 
+        + _debt.toString() + ", " 
+        + _coll.toString() + ", " 
+        + _mode + ")"
+    );
     const liquidated = new CDPLiquidatedEvent();
     liquidated._user = _user;
     liquidated._debt = _debt;

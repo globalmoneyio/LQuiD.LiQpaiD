@@ -37,9 +37,9 @@ export class LiquidationValues {
 export class RewardSnapshot { coll: Amount; debt: Amount }
 
 export const PCT = u128.from(1000000000000000000); // 100% 1e18
-export const LOGIC_CONTRACT = "globalmoney.testnet"
+const TOKEN_CONTRACT = "quid.globalmoney.testnet";
+export const LOGIC_CONTRACT = "globalmoney.testnet";
 const LINK_CONTRACT = "chainlink.globalmoney.testnet";
-const TOKEN_CONTRACT = "LQD.testnet"
 
 export class TokenApi {
   mint(user: AccountId, tokens: Amount): ContractPromise {
@@ -94,7 +94,7 @@ export class TroveMgr {
   }
 
   addCDPOwnerToArray(_user: AccountId): usize {
-    let index: usize = CDPOwners.length;
+    let index = CDPOwners.length;
     assert(!CDPs.contains(_user), ERR_USER_EXISTS);
     CDPOwners.push(_user);
     var cdp: CDP = new CDP();
@@ -107,13 +107,16 @@ export class TroveMgr {
     var cdp: CDP;
     if(CDPs.contains(address)) {
       cdp = CDPs.getSome(address);
-      return cdp.status
+      return <u16>cdp.status;
     }
     return 0;
   }
   setCDPStatus(address: AccountId, _num: u16): void {
-    var cdp: CDP = CDPs.get(address, new CDP());
-
+    var cdp: CDP;
+    if (!CDPs.contains(address))
+      cdp = new CDP();
+    else 
+      cdp = CDPs.getSome(address);
     if (_num == 0)
       cdp.status = Status.nonExistent;
     else if (_num == 1 )
@@ -182,7 +185,7 @@ export class TroveMgr {
     this.totalStakes = u128.sub(this.totalStakes, cdp.stake);
     cdp.stake = u128.Zero;
     CDPs.set(_user, cdp);
-    CDPOwners.swap_remove(cdp.arrayIndex);
+    CDPOwners.swap_remove(<i32>cdp.arrayIndex);
   }
   
   // Redeem as much collateral as possible from _cdpUser's CDP in exchange for LQD up to _maxLQDamount
@@ -202,9 +205,9 @@ export class TroveMgr {
     CDPs.set(_user, cdp);
   }
 
-  hasPendingFunds(_user: AccountId): bool {
-    
-    return false;
+  hasPendingGains(_user: AccountId): bool {
+    let shot: RewardSnapshot = rewardSnapshots.getSome(_user);
+    return shot.coll < this.L_Coll;
   }
   getPendingCollateralGain(_user: AccountId): Amount {
     let snapshot: RewardSnapshot = rewardSnapshots.getSome(_user);
@@ -327,18 +330,21 @@ export class PoolMgr {
   getTotalNEAR(): Amount {
     return u128.add(this.activePool.getNEAR(), this.defaultPool.getNEAR());
   }
-  getDebtPenaltyPerUnitStaked(_debtToOffset: Amount, stableLQD): Amount {
+  getDebtPenaltyPerUnitStaked(_debtToOffset: Amount, stableLQD: Amount): Amount {
     return u128.div(u128.mul(_debtToOffset, PCT), stableLQD);
   }
-  getCollateralRewardPerUnitStaked(_collToAdd, stableLQD): Amount {
+  getCollateralRewardPerUnitStaked(_collToAdd: Amount, stableLQD: Amount): Amount {
     return u128.div(u128.mul(_collToAdd, PCT), stableLQD); 
   }
 
   depositStableLQD(_account: AccountId, _LQD: Amount): void {
     this.stablePool.increaseLQD(_LQD);
+    var deposit: Amount;
+    if (stableLQDeposits.contains(_account)) {
+      deposit = stableLQDeposits.getSome(_account);
+      deposit = u128.add(deposit, _LQD);
+    } else deposit = _LQD;
 
-    var deposit = stableLQDeposits.get(_account, u128.Zero);
-    deposit = u128.add(deposit, _LQD);
     stableLQDeposits.set(_account, deposit);
 
     let token = new TokenApi();
@@ -451,7 +457,7 @@ export class PoolMgr {
      promise.returnAsResult(); // Burn the debt that was successfully offset
   }
   // Update the Active Pool and the Default Pool when a CDP gets closed
-  liquidate(_LQD: Amount, _NEAR: Amount) {
+  liquidate(_LQD: Amount, _NEAR: Amount): void {
     // Transfer the debt & coll from the Active Pool to the Default Pool
     this.activePool.decreaseLQD(_LQD);
     this.defaultPool.increaseLQD(_LQD);
@@ -486,5 +492,8 @@ export function _computeICR( _coll: u128, _debt: u128, _price: u128 ): u128 {
 // https://www.crowdcast.io/e/hacktherainbow/register?session=14
 // https://github.com/smartcontractkit/near-protocol-contracts
 export function getPrice(): u128 {
-  return u128.from(Math.floor(Math.random() * Math.floor(500)));
+  let peak = u128.from(Math.floor(500));
+  let random = u128.from(Math.random());
+  let product = u128.mul(peak, random);
+  return product;
 }
