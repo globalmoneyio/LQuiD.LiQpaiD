@@ -1,11 +1,22 @@
 
+import { ERR_USER_EXISTS, ERR_WITHDRAW_TOO_MUCH, ERR_REPAY_OVER } from './errors'
 import { u128, PersistentVector, PersistentMap, 
          ContractPromiseBatch, ContractPromise } from "near-sdk-as";
-import { ERR_USER_EXISTS, ERR_WITHDRAW_TOO_MUCH } from './errors'
 
 export type AccountId = string
 export type Amount = u128
+export type Stake = u128
+export type Ratio = u128
 
+export const MIN_COLL_IN_GBP = u128.from(20000000000000000000); // 20
+export const MCR = u128.from(1100000000000000000); // Minimal Collateral Ratio, 110%
+// If the total system collateral (TCR) falls below the CCR, Recovery Mode is triggered.
+export const CCR = u128.from(1500000000000000000); // Critical Collateral Ratio, 150% 
+export const PCT = u128.from(1000000000000000000); // 100% 1e18
+
+const TOKEN_CONTRACT = "quid.globalmoney.testnet";
+export const LOGIC_CONTRACT = "globalmoney.testnet";
+const LINK_CONTRACT = "chainlink.globalmoney.testnet";
 // Store the necessary data for a Collateralized Debt Position (CDP)
 export enum Status { nonExistent, active, closed }
 
@@ -23,7 +34,6 @@ export class CDP {
     this.status = Status.nonExistent;
   }
 }
-
 @nearBindgen
 export class LiquidationValues {
   debtToOffset: Amount;
@@ -35,12 +45,6 @@ export class LiquidationValues {
 }
 @nearBindgen
 export class RewardSnapshot { coll: Amount; debt: Amount }
-
-export const PCT = u128.from(1000000000000000000); // 100% 1e18
-const TOKEN_CONTRACT = "quid.globalmoney.testnet";
-export const LOGIC_CONTRACT = "globalmoney.testnet";
-const LINK_CONTRACT = "chainlink.globalmoney.testnet";
-
 export class TokenApi {
   mint(user: AccountId, tokens: Amount): ContractPromise {
     let args: MintBurnArgs = { user, tokens };
@@ -53,7 +57,6 @@ export class TokenApi {
     return promise;
   }
 }
-
 /*  
  * During it's lifetime, each deposit d(0) earns a collateral gain of 
  * ( d(0) * [S - S(0)] )/P(0), where S(0) is the snapshot of S taken 
@@ -72,8 +75,13 @@ export class TroveMgr {
   // snapshot of the value of totalStakes immediately after the last liquidation
   private totalStakes: u128;  
 
+  // fee revenue from redemptions and issuance 
+  private totalFees: Amount;
+
   // snapshot of the total collateral in ActivePool and DefaultPool, immediately after the last liquidation.
-  private totalCollateral: Amount;
+  private totalCollateral: Amount; // TODO not incremented anywhere
+
+  private totalDebt: Amount; // TODO not incremented anywhere
 
   /* TODO
    * Track accumulated liquidation rewards per unit staked. 
@@ -91,6 +99,13 @@ export class TroveMgr {
     this.totalCollateral = u128.Zero;
     this.L_Coll = u128.Zero;
     this.L_Debt = u128.Zero;
+  }
+
+  payFee(_user: AccountId, _fee: Amount): void {
+    let cdp = CDPs.getSome(_user);
+    this.totalFees = u128.add(this.totalFees, _fee);
+    cdp.debt = u128.add(cdp.debt, _fee);
+    CDPs.set(_user, cdp); 
   }
 
   addCDPOwnerToArray(_user: AccountId): usize {
@@ -141,15 +156,29 @@ export class TroveMgr {
     CDPs.set(_user, cdp);
     return newColl;
   }
-  increaseCDPDebt(_user: AccountId, _debtIncrease: Amount): Amount {
+  mintDebt(_user: AccountId, _debtIncrease: Amount): Amount {
+    let issuanceFee = u128.div(
+      u128.mul(_debtIncrease, u128.One), 
+      this.getTotalDebt()
+    ); let debtPlusFee = u128.add(_debtIncrease, issuanceFee);
+
     var cdp: CDP = CDPs.getSome(_user);
-    let newDebt = u128.add(cdp.debt, _debtIncrease);
+    let newDebt = u128.add(cdp.debt, debtPlusFee);
     cdp.debt = newDebt;
     CDPs.set(_user, cdp);
+    /*
+     * We don't mint the issuance fee amount
+     * because the user must obtain that by 
+     * selling some collateral or other means
+     * to close her debt against the system
+    */ let token = new TokenApi(); 
+    let promise = token.mint(_user, _debtIncrease);
+    promise.returnAsResult();
     return newDebt;
   }
-  decreaseCDPDebt(_user: AccountId, _debtDecrease: Amount): Amount {
+  burnDebt(_user: AccountId, _debtDecrease: Amount): Amount {
     var cdp: CDP = CDPs.getSome(_user);
+    assert(_debtDecrease < cdp.debt, ERR_REPAY_OVER);
     let newDebt: u128 = u128.sub(cdp.debt, _debtDecrease);
     cdp.debt = newDebt;
     CDPs.set(_user, cdp);
@@ -247,6 +276,12 @@ export class TroveMgr {
   getCDP(_user: AccountId): CDP {
     return CDPs.getSome(_user);
   }
+  getTotalCollateral(): Amount {
+    return this.totalCollateral;
+  }
+  getTotalDebt(): Amount {
+    return this.totalDebt;
+  }
 }
 
 /////////////////////////////////    Pool Stuff     /////////////////////////////////
@@ -336,7 +371,15 @@ export class PoolMgr {
   getCollateralRewardPerUnitStaked(_collToAdd: Amount, stableLQD: Amount): Amount {
     return u128.div(u128.mul(_collToAdd, PCT), stableLQD); 
   }
-
+  getStabilityPoolDeposit(_account: AccountId): Amount {  
+    if (stableLQDeposits.contains(_account)) {
+      return stableLQDeposits.getSome(_account);
+    } return u128.Zero;
+  }
+  getStabilityPoolNEARgain(_account: AccountId): Amount {  
+    // TODO
+    return u128.Zero;
+  }
   depositStableLQD(_account: AccountId, _LQD: Amount): void {
     this.stablePool.increaseLQD(_LQD);
     var deposit: Amount;

@@ -32,7 +32,7 @@ export const updatedEvents = new PersistentDeque<CDPUpdatedEvent>("updated");
 export const liquidatedEvents = new PersistentDeque<CDPLiquidatedEvent>("liquidated");
 
 export function emitCDPcreatedEvent(_user: string, arrayIndex: usize): void {
-    logging.log("[call] CDPcreatedEvent(" + _user + ", " + arrayIndex.toString() + ")");
+    logging.log("[call] CDPcreatedEvent(" + _user + ")");
     const created = new CDPCreatedEvent();
     created._user = _user;
     created.arrayIndex = arrayIndex;
