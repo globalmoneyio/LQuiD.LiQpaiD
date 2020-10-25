@@ -15,17 +15,14 @@
  * their deposit will have a computed NEAR gain based on a variable in the PoolManager. 
  * But their actual withdrawable NEAR is in the balance of the StabilityPool contract.
  */
-import { Context, u128 } from "near-sdk-as";
+import { Context, u128, storage, math } from "near-sdk-as";
 import { 
   PCT, MCR, CCR, MIN_COLL_IN_GBP,
   LOGIC_CONTRACT, Ratio, Stake,
-  _computeICR, getPrice, min,
-  CDP, CDPs, CDPOwners,
-  AccountId, Amount, 
-  TroveMgr, PoolMgr,
-  LiquidationValues
+  _computeICR, min, CDP, CDPs, 
+  CDPOwners, AccountId, Amount, 
+  TroveMgr, PoolMgr, LiquidationValues
 } from "./model";
-
 import {
   emitCDPliquidatedEvent,
   emitCDPcreatedEvent,
@@ -38,8 +35,8 @@ import {
   ERR_ICR_BELOW_MCR,
   ERR_CCR_BELOW_TCR,
   ERR_NEW_TCR_WORSE,
+  ERR_OVERDRAW_NEAR,
   ERR_CDP_INACTIVE,
-  ERR_OVERDRAW_ETH,
   ERR_IN_RECOVERY,
   ERR_REPAY_OVER
 } from "./errors";
@@ -50,6 +47,32 @@ let poolManager: PoolMgr;
 export function init(): void {
   this.cdpManager = new TroveMgr();
   this.poolManager = new PoolMgr();
+}
+
+function randomU32(): u32 {
+  let buf = math.randomBuffer(2);
+  return (
+    (0xff & buf[0]) << 24 |
+    (0xff & buf[1]) << 16 |
+    (0xff & buf[2]) << 8 |
+    (0xff & buf[3]) << 0
+  );
+}
+// TODO Oracle Cross Contract Call
+// https://www.crowdcast.io/e/hacktherainbow/register?session=14
+// https://github.com/smartcontractkit/near-protocol-contracts
+export function getRandomPrice(): u128 {
+  let random: u32 = randomU32() % 40000 + 10000;
+  return u128.mul(u128.from(random), u128.from(10000000000000000));  
+}
+export function getPrice(): u128 {
+  if (storage.contains("price"))
+    return storage.getSome<u128>("price");
+  else 
+    return u128.Zero;
+}
+export function setPrice(newPrice: u128): void {  
+  storage.set<u128>("price", newPrice);
 }
 
 export function getCDPs(): Map<AccountId, CDP> {
@@ -149,7 +172,7 @@ export function addColl(_user: AccountId): void { // payable
   emitCDPupdatedEvent(_user, debt, newColl, stake);
 }
 
-// Withdraw ETH collateral from a CDP
+// Withdraw collateral from a CDP
 export function withdrawColl(_amount: Amount): void {
   let user: AccountId = Context.predecessor; 
   let status = cdpManager.getCDPStatus(user);
@@ -174,7 +197,7 @@ export function withdrawColl(_amount: Amount): void {
       cdpManager.closeCDP(user);  
   }
 
-  // Remove _amount ETH from ActivePool and send it to the user
+  // Remove _amount NEAR from ActivePool and send it to the user
   poolManager.withdrawColl(user, _amount);
 
   emitCDPupdatedEvent(user, debt, newColl, stake); 
@@ -291,23 +314,23 @@ export function adjustLoan(_collWithdrawal: Amount, _debtChange: u128, _isDebtIn
 
 //TODO
 export function redeemCollateral(_LQDamount: Amount): void {
-  var remainingLQD = _LQDamount;
+  var cdp: CDP;
   let price = getPrice();
   var currentUser: AccountId;
-  var newLength = 0;
-
+  var remainingLQD = _LQDamount;
+  let totalColl = poolManager.getActiveNEAR();
+  let totalDebt = poolManager.getActiveLQD();
   for (let i = 0; i < CDPOwners.length; i++) {
     if (remainingLQD == u128.Zero)
       break;
-      
-    currentUser = CDPOwners[i];
-
     if (cdpManager.getCurrentICR(currentUser, price) < MCR) 
       continue;
-
-    remainingLQD = u128.sub(remainingLQD, cdpManager.redeemCollateralFromCDP(currentUser, remainingLQD, price));
-
-    newLength += 1;
+    currentUser = CDPOwners[i];
+    remainingLQD = u128.sub(remainingLQD, 
+      cdpManager.redeemCollateralFromCDP(
+        currentUser, remainingLQD, totalColl, totalDebt, price
+      )
+    );  
   } 
 }
 
@@ -497,7 +520,7 @@ function _redistributeDebtAndColl(_debt: Amount, _coll: Amount): void {
     poolManager.stablePool.decreaseLQD(debtToOffset); 
     poolManager.repayLQD(LOGIC_CONTRACT, debtToOffset); 
    
-    // Send ETH from Active Pool to Stability Pool
+    // Send NEAR from Active Pool to Stability Pool
     poolManager.activePool.recapNEAR(collToAdd);  
     poolManager.stablePool.receiveNEAR(collToAdd);  
 
@@ -528,7 +551,7 @@ function _requireNonZeroAmount(_amount: u128): void {
 
 function _requireCollAmountIsWithdrawable(_currentColl: u128, _collWithdrawal: u128, _price: u128): void {
   if (_collWithdrawal > u128.Zero) {
-      assert(_collWithdrawal <= _currentColl, ERR_OVERDRAW_ETH);
+      assert(_collWithdrawal <= _currentColl, ERR_OVERDRAW_NEAR);
       
       let newColl = u128.sub(_currentColl, _collWithdrawal);
       assert(_getUSDValue(newColl, _price) >= MIN_COLL_IN_GBP || newColl == u128.Zero,
@@ -661,7 +684,7 @@ function _getNewTCRFromTroveChange(
 }
 
 
-// Return the total collateral ratio (TCR) of the system, based on the most recent ETH:USD price
+// Return the total collateral ratio (TCR) of the system, based on the most recent oracle price
 function _getTCR(): u128 {
   let price = getPrice();
 

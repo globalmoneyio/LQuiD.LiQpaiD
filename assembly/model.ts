@@ -1,6 +1,6 @@
 
 import { ERR_USER_EXISTS, ERR_WITHDRAW_TOO_MUCH, ERR_REPAY_OVER } from './errors'
-import { u128, math, PersistentVector, PersistentMap, 
+import { u128, PersistentVector, PersistentMap, 
          ContractPromiseBatch, ContractPromise } from "near-sdk-as";
 
 export type AccountId = string
@@ -14,9 +14,10 @@ export const MCR = u128.from(1100000000000000000); // Minimal Collateral Ratio, 
 export const CCR = u128.from(1500000000000000000); // Critical Collateral Ratio, 150% 
 export const PCT = u128.from(1000000000000000000); // 100% 1e18
 
+// TODO 
+// const LINK_CONTRACT = "chainlink.globalmoney.testnet";
 const TOKEN_CONTRACT = "quid.globalmoney.testnet";
 export const LOGIC_CONTRACT = "globalmoney.testnet";
-const LINK_CONTRACT = "chainlink.globalmoney.testnet";
 // Store the necessary data for a Collateralized Debt Position (CDP)
 export enum Status { nonExistent, active, closed }
 
@@ -194,11 +195,23 @@ export class TroveMgr {
     CDPOwners.swap_remove(<i32>cdp.arrayIndex);
   }
   // Redeem as much collateral as possible from _cdpUser's CDP in exchange for LQD up to _maxLQDamount
-  redeemCollateralFromCDP(_cdpUser: AccountId, _maxLQD: Amount, _price: u128): Amount {
+  redeemCollateralFromCDP(_user: AccountId, _maxLQD: Amount, 
+                          _totalColl: Amount, _totalDebt: Amount, _price: u128): Amount {
     // Determine the remaining amount (lot) to be redeemed, capped by the entire debt of the CDP
-    let cdp: CDP = CDPs.getSome(_cdpUser);
-    let LQDLot = min(_maxLQD, cdp.debt); 
-    // TODO
+    let cdp: CDP = CDPs.getSome(_user);
+    /* TODO
+    let TCRwith = _computeICR(_totalColl, _totalDebt, _price);
+    let TCRwithout = _computeICR(
+      u128.sub(_totalColl, cdp.coll), 
+      u128.sub(_totalDebt, cdp.debt),
+      _price
+    );
+    let TCRdelta = u128.sub(TCRwith, TCRwithout);
+    let TCRshare = u128.div(TCRdelta, TCRwith);
+    let toRedeem = min(u128.mul(_maxLQD, TCRshare), cdp.debt);
+    */
+    // TODO, adjust the cdp
+
     return u128.Zero;
   }
   // Remove use's stake from the totalStakes sum, and set their stake to 0
@@ -210,7 +223,7 @@ export class TroveMgr {
   }
   // Return the current collateral ratio (ICR) of a given CDP
   getCurrentICR(_user: AccountId, _price: u128): u128 {  
-    return _computeICR (this.getCDPColl(_user), this.getCDPDebt(_user), _price);      
+    return _computeICR(this.getCDPColl(_user), this.getCDPDebt(_user), _price);      
   }
   getCDPColl(_user: AccountId): Amount {
     return this.getCDP(_user).coll;
@@ -234,7 +247,7 @@ class MintBurnArgs {
 }
 @nearBindgen
 class Pool {
-  private NEAR: Amount;  // deposited ether tracker
+  private NEAR: Amount;  // deposited collateral tracker
   private LQD: Amount;  // total outstanding CDP debt
   
   constructor() {
@@ -353,13 +366,13 @@ export class PoolMgr {
   addColl(_amount: Amount): void {
     this.activePool.receiveNEAR(_amount);
   }
-  // Transfer the specified amount of ETH to _account
+  // Transfer the specified amount of NEAR to _account
   withdrawColl(_account: AccountId, _NEAR: Amount): void { // s
     this.activePool.sendNEAR(_account, _NEAR);
   }
-  // Burn the calculated lot of LQD and send the corresponding ETH to to _account
+  // Burn the calculated lot of LQD and send the corresponding NEAR to to _account
   redeemCollateral(_account: AccountId, _LQD: Amount, _NEAR: Amount): void {
-    // Update Active Pool LQD, and send ETH to account
+    // Update Active Pool LQD, and send NEAR to account
     this.activePool.decreaseLQD(_LQD);  
     this.activePool.sendNEAR(_account, _NEAR); 
 
@@ -375,7 +388,7 @@ export class PoolMgr {
     this.activePool.receiveNEAR(collateralReward);
   }
   /* Cancel out the specified _debt against the CLV contained in the Stability Pool (as far as possible)  
-    and transfers the CDP's ETH collateral from ActivePool to StabilityPool. 
+    and transfers the CDP's NEAR collateral from ActivePool to StabilityPool. 
     Only called from liquidation functions in CDPManager. */
   offset(_debtToOffset: Amount, _collToAdd: Amount): void {
     let stableLQD = this.getStableLQD(); 
@@ -388,7 +401,7 @@ export class PoolMgr {
      this.activePool.decreaseLQD(_debtToOffset);  
      this.stablePool.decreaseLQD(_debtToOffset); 
     
-     // Send ETH from Active Pool to Stability Pool
+     // Send NEAR from Active Pool to Stability Pool
      this.activePool.recapNEAR(_collToAdd);
      this.stablePool.receiveNEAR(_collToAdd);
      
@@ -427,23 +440,3 @@ export function _computeICR( _coll: u128, _debt: u128, _price: u128 ): u128 {
   }
   return u128.Zero;
 }
-
-function randomU32(): u32 {
-  let buf = math.randomBuffer(2);
-  return (
-    (0xff & buf[0]) << 24 |
-    (0xff & buf[1]) << 16 |
-    (0xff & buf[2]) << 8 |
-    (0xff & buf[3]) << 0
-  );
-}
-// TODO Oracle Cross Contract Call
-// https://www.crowdcast.io/e/hacktherainbow/register?session=14
-// https://github.com/smartcontractkit/near-protocol-contracts
-export function getPrice(): u128 {
-  let random: u32 = randomU32() % 40000 + 10000;
-  return u128.mul(u128.from(random), u128.from(10000000000000000));  
-}
-// TODO
-// export function setPrice(newPrice: u128): u128 {  
-//}
