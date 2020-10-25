@@ -2,7 +2,6 @@ import React from "react";
 import { Text, Flex, Box, Heading } from "theme-ui";
 
 import { Decimal } from "@liquity/decimal";
-import { shortenAddress } from "../utils/shortenAddress";
 import { Icon } from "./Icon";
 
 type UserAccountProps = {
@@ -18,7 +17,7 @@ export const UserAccount: React.FC<UserAccountProps> = ({ account, etherBalance,
       <Flex sx={{ ml: 3, mr: 4, flexDirection: "column" }}>
         <Heading sx={{ fontSize: 1 }}>Connected as</Heading>
         <Text as="span" sx={{ fontSize: 1 }}>
-          {shortenAddress(account)}
+          {account}
         </Text>
       </Flex>
     </Flex>

@@ -19,7 +19,7 @@ import { Context, u128 } from "near-sdk-as";
 import { 
   PCT, MCR, CCR, MIN_COLL_IN_GBP,
   LOGIC_CONTRACT, Ratio, Stake,
-  _computeICR, getPrice, min,
+  _computeICR, min,
   CDP, CDPs, CDPOwners,
   AccountId, Amount, 
   TroveMgr, PoolMgr,
@@ -52,6 +52,16 @@ export function init(): void {
   this.poolManager = new PoolMgr();
 }
 
+// TODO Oracle Cross Contract Call
+// https://www.crowdcast.io/e/hacktherainbow/register?session=14
+// https://github.com/smartcontractkit/near-protocol-contracts
+export function getPrice(): u128 {
+  return u128.mul(u128.from(200), u128.from(1000000000000000000));  
+}
+// TODO
+// export function setPrice(newPrice: u128): u128 {  
+//}
+
 export function getCDPs(): Map<AccountId, CDP> {
   let map: Map<AccountId, CDP> = new Map<AccountId, CDP>();
   for (let i = 0; i < CDPOwners.length; i++) {
@@ -61,8 +71,7 @@ export function getCDPs(): Map<AccountId, CDP> {
   return map;
 }
 export function getCDP(owner_id: AccountId): CDP {
-  assert(CDPs.contains(owner_id), ERR_INVALID_ACCOUNT)
-  return CDPs.getSome(owner_id)
+  return CDPs.get(owner_id, new CDP()) as CDP;
 }
 export function getSPdebt(): Amount {
   return this.poolManager.getStableLQD();

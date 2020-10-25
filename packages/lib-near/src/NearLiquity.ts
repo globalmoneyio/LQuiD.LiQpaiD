@@ -145,9 +145,11 @@ export class WrappedNearTransaction {
 }
 
 const AMPLE_GAS = "30000000000000";
+const NEAR_SCALING_FACTOR = Decimal.from("1000000"); // Quick hack: NEAR uses 6 more decimals
 
-const decimalify = (bigNumberString: string) => new Decimal(BigNumber.from(bigNumberString));
 const numberify = (numberString: string) => parseInt(numberString, 10);
+const decimalify = (bigNumberString?: string | null) =>
+  new Decimal(BigNumber.from(bigNumberString ?? 0));
 
 export class NearLiquity implements ReadableLiquity, TransactableLiquity<WrappedNearTransaction> {
   private contract: LiquityContract;
@@ -169,7 +171,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
       this.contract.openLoan(
         { _LQDAmount: `${trove.debt.bigNumber}` },
         AMPLE_GAS,
-        `${trove.collateral.bigNumber}`
+        `${trove.collateral.mul(NEAR_SCALING_FACTOR).bigNumber}`
       )
     );
   }
@@ -183,14 +185,17 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
       this.contract.addColl(
         { _user: this.userAddress },
         AMPLE_GAS,
-        `${Decimal.from(depositedEther).bigNumber}`
+        `${Decimal.from(depositedEther).mul(NEAR_SCALING_FACTOR).bigNumber}`
       )
     );
   }
 
   async withdrawEther(withdrawnEther: Decimalish) {
     return new WrappedNearTransaction(
-      this.contract.withdrawColl({ _amount: `${Decimal.from(withdrawnEther).bigNumber}` }, AMPLE_GAS)
+      this.contract.withdrawColl(
+        { _amount: `${Decimal.from(withdrawnEther).mul(NEAR_SCALING_FACTOR).bigNumber}` },
+        AMPLE_GAS
+      )
     );
   }
 
@@ -210,12 +215,18 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     return new WrappedNearTransaction(
       this.contract.adjustLoan(
         {
-          _collWithdrawal: `${change.collateralDifference?.negative?.absoluteValue?.bigNumber || 0}`,
+          _collWithdrawal: `${
+            change.collateralDifference?.negative?.absoluteValue?.mul(NEAR_SCALING_FACTOR)
+              .bigNumber || 0
+          }`,
           _debtChange: `${change.debtDifference?.absoluteValue?.bigNumber || 0}`,
           _isDebtIncrease: change.debtDifference?.positive ? 1 : 0
         },
         AMPLE_GAS,
-        `${change.collateralDifference?.positive?.absoluteValue?.bigNumber || 0}`
+        `${
+          change.collateralDifference?.positive?.absoluteValue?.mul(NEAR_SCALING_FACTOR).bigNumber ||
+          0
+        }`
       )
     );
   }
@@ -284,7 +295,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
 
     if (numberify(cdp.status) === CDPStatus.active) {
       return new TroveWithPendingRewards({
-        collateral: decimalify(cdp.coll),
+        collateral: decimalify(cdp.coll).div(NEAR_SCALING_FACTOR),
         debt: decimalify(cdp.debt),
         stake: decimalify(cdp.stake),
 
@@ -341,7 +352,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     );
 
     return new Trove({
-      collateral,
+      collateral: collateral.div(NEAR_SCALING_FACTOR),
       debt,
       virtualDebt: 0
     });
@@ -375,7 +386,8 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
   }
 
   getQuiBalance(owner_id = this.userAddress) {
-    return this.token.get_balance({ owner_id }).then(decimalify);
+    // return this.token.get_balance({ owner_id }).then(decimalify);
+    return Promise.resolve(Decimal.from(0));
   }
 
   watchQuiBalance(onQuiBalanceChanged: (balance: Decimal) => void, address?: string): () => void {
@@ -411,7 +423,7 @@ const mapCDPsToTroves = (cdps: CDPs) =>
         owner,
 
         new TroveWithPendingRewards({
-          collateral: decimalify(coll),
+          collateral: decimalify(coll).div(NEAR_SCALING_FACTOR),
           debt: decimalify(debt),
           stake: decimalify(stake),
 
