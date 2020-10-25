@@ -5,5 +5,5 @@ export default {
   helperUrl: "https://helper.testnet.near.org",
   explorerUrl: "https://explorer.testnet.near.org",
   contractId: "globalmoney.testnet",
-  tokenId: "LQD.testnet"
+  tokenId: "quid.globalmoney.testnet"
 };

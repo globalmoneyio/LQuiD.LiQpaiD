@@ -21,7 +21,7 @@ enum CDPStatus {
 type BNLike = string | number;
 
 interface LiquityViewMethods {
-  get_cdp(args: {
+  getCDP(args: {
     owner_id: string;
   }): Promise<{
     debt: string;
@@ -33,21 +33,13 @@ interface LiquityViewMethods {
 
   getPrice(): Promise<string>;
 
-  getActiveColl(): Promise<string>;
+  getTotalColl(): Promise<string>;
 
-  getActiveDebt(): Promise<string>;
+  getTotalDebt(): Promise<string>;
 
-  getLiquidatedColl(): Promise<string>;
+  getSPdep(args: { owner: string }): Promise<string>;
 
-  getClosedDebt(): Promise<string>;
-
-  initialDeposits(args: { _user: string }): Promise<string>;
-
-  getCompoundedCLVDeposit(args: { _user: string }): Promise<string>;
-
-  getCurrentETHGain(args: { _user: string }): Promise<string>;
-
-  getStabilityPoolCLV(): Promise<string>;
+  getSPdebt(): Promise<string>;
 
   getCDPs(): Promise<{
     [owner: string]: {
@@ -61,7 +53,7 @@ interface LiquityViewMethods {
 }
 
 interface LiquityChangeMethods {
-  openLoan(args: { _CLVAmount: BNLike }, gas: BNLike, amount: BNLike): Promise<void>;
+  openLoan(args: { _LQDAmount: BNLike }, gas: BNLike, amount: BNLike): Promise<void>;
 
   closeLoan(args: {}, gas: BNLike): Promise<void>;
 
@@ -69,31 +61,25 @@ interface LiquityChangeMethods {
 
   withdrawColl(args: { _amount: BNLike }, gas: BNLike): Promise<void>;
 
-  withdrawCLV(args: { _amount: BNLike }, gas: BNLike): Promise<void>;
+  withdrawLQD(args: { _amount: BNLike }, gas: BNLike): Promise<void>;
 
-  repayCLV(args: { _amount: BNLike }, gas: BNLike): Promise<void>;
+  repayLQD(args: { _amount: BNLike }, gas: BNLike): Promise<void>;
 
   adjustLoan(
-    args: { _collWithdrawal: BNLike; _debtChange: BNLike; _isDebtIncrease: boolean },
+    args: { _collWithdrawal: BNLike; _debtChange: BNLike; _isDebtIncrease: BNLike },
     gas: BNLike,
     amount: BNLike
   ): Promise<void>;
 
-  setPrice(args: { _price: BNLike }, gas: BNLike): Promise<void>;
-
-  updatePrice_Testnet(args: {}, gas: BNLike): Promise<void>;
+  setPrice(args: { newPrice: BNLike }, gas: BNLike): Promise<void>;
 
   liquidate(args: { _user: string }, gas: BNLike): Promise<void>;
-
-  liquidateCDPs(args: { _n: BNLike }, gas: BNLike): Promise<void>;
 
   provideToSP(args: { _amount: BNLike }, gas: BNLike): Promise<void>;
 
   withdrawFromSP(args: { _amount: BNLike }, gas: BNLike): Promise<void>;
 
-  withdrawFromSPtoCDP(args: { _user: string }, gas: BNLike): Promise<void>;
-
-  redeemCollateral(args: { _CLVamount: BNLike }, gas: BNLike): Promise<void>;
+  redeemCollateral(args: { _LQDamount: BNLike }, gas: BNLike): Promise<void>;
 }
 
 type LiquityContract = nearAPI.Contract & LiquityViewMethods & LiquityChangeMethods;
@@ -103,16 +89,12 @@ const liquityMethods: {
   changeMethods: (keyof LiquityChangeMethods)[];
 } = {
   viewMethods: [
-    "get_cdp",
+    "getCDP",
     "getPrice",
-    "getActiveColl",
-    "getActiveDebt",
-    "getLiquidatedColl",
-    "getClosedDebt",
-    "initialDeposits",
-    "getCompoundedCLVDeposit",
-    "getCurrentETHGain",
-    "getStabilityPoolCLV",
+    "getTotalColl",
+    "getTotalDebt",
+    "getSPdep",
+    "getSPdebt",
     "getCDPs"
   ],
 
@@ -121,16 +103,13 @@ const liquityMethods: {
     "closeLoan",
     "addColl",
     "withdrawColl",
-    "withdrawCLV",
-    "repayCLV",
+    "withdrawLQD",
+    "repayLQD",
     "adjustLoan",
     "setPrice",
-    "updatePrice_Testnet",
     "liquidate",
-    "liquidateCDPs",
     "provideToSP",
     "withdrawFromSP",
-    "withdrawFromSPtoCDP",
     "redeemCollateral"
   ]
 };
@@ -178,7 +157,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
   constructor(
     account: nearAPI.Account,
     contractId = "globalmoney.testnet",
-    tokenId = "LQD.testnet"
+    tokenId = "quid.globalmoney.testnet"
   ) {
     this.contract = new nearAPI.Contract(account, contractId, liquityMethods) as LiquityContract;
     this.token = new nearAPI.Contract(account, tokenId, tokenMethods) as TokenContract;
@@ -188,7 +167,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
   async openTrove(trove: Trove) {
     return new WrappedNearTransaction(
       this.contract.openLoan(
-        { _CLVAmount: `${trove.debt.bigNumber}` },
+        { _LQDAmount: `${trove.debt.bigNumber}` },
         AMPLE_GAS,
         `${trove.collateral.bigNumber}`
       )
@@ -217,13 +196,13 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
 
   async borrowQui(borrowedQui: Decimalish) {
     return new WrappedNearTransaction(
-      this.contract.withdrawCLV({ _amount: `${Decimal.from(borrowedQui).bigNumber}` }, AMPLE_GAS)
+      this.contract.withdrawLQD({ _amount: `${Decimal.from(borrowedQui).bigNumber}` }, AMPLE_GAS)
     );
   }
 
   async repayQui(repaidQui: Decimalish) {
     return new WrappedNearTransaction(
-      this.contract.repayCLV({ _amount: `${Decimal.from(repaidQui).bigNumber}` }, AMPLE_GAS)
+      this.contract.repayLQD({ _amount: `${Decimal.from(repaidQui).bigNumber}` }, AMPLE_GAS)
     );
   }
 
@@ -233,7 +212,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
         {
           _collWithdrawal: `${change.collateralDifference?.negative?.absoluteValue?.bigNumber || 0}`,
           _debtChange: `${change.debtDifference?.absoluteValue?.bigNumber || 0}`,
-          _isDebtIncrease: !change.debtDifference?.negative
+          _isDebtIncrease: change.debtDifference?.positive ? 1 : 0
         },
         AMPLE_GAS,
         `${change.collateralDifference?.positive?.absoluteValue?.bigNumber || 0}`
@@ -243,20 +222,20 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
 
   async setPrice(price: Decimalish) {
     return new WrappedNearTransaction(
-      this.contract.setPrice({ _price: `${Decimal.from(price).bigNumber}` }, AMPLE_GAS)
+      this.contract.setPrice({ newPrice: `${Decimal.from(price).bigNumber}` }, AMPLE_GAS)
     );
   }
 
-  async updatePrice() {
-    return new WrappedNearTransaction(this.contract.updatePrice_Testnet({}, AMPLE_GAS));
+  updatePrice(): Promise<WrappedNearTransaction> {
+    throw new Error("Method not implemented.");
   }
 
   async liquidate(_user: string) {
     return new WrappedNearTransaction(this.contract.liquidate({ _user }, AMPLE_GAS));
   }
 
-  async liquidateUpTo(_n: number) {
-    return new WrappedNearTransaction(this.contract.liquidateCDPs({ _n }, AMPLE_GAS));
+  liquidateUpTo(_n: number): Promise<WrappedNearTransaction> {
+    throw new Error("Method not implemented.");
   }
 
   async depositQuiInStabilityPool(depositedQui: Decimalish) {
@@ -271,10 +250,8 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     );
   }
 
-  async transferCollateralGainToTrove() {
-    return new WrappedNearTransaction(
-      this.contract.withdrawFromSPtoCDP({ _user: this.userAddress }, AMPLE_GAS)
-    );
+  async transferCollateralGainToTrove(): Promise<WrappedNearTransaction> {
+    throw new Error("Method not implemented.");
   }
 
   async sendQui(new_owner_id: string, amount: Decimalish) {
@@ -286,7 +263,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
   async redeemCollateral(exchangedQui: Decimalish) {
     return new WrappedNearTransaction(
       this.contract.redeemCollateral(
-        { _CLVamount: `${Decimal.from(exchangedQui).bigNumber}` },
+        { _LQDamount: `${Decimal.from(exchangedQui).bigNumber}` },
         AMPLE_GAS
       )
     );
@@ -303,7 +280,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
   }
 
   async getTroveWithoutRewards(owner_id = this.userAddress) {
-    const cdp = await this.contract.get_cdp({ owner_id });
+    const cdp = await this.contract.getCDP({ owner_id });
 
     if (numberify(cdp.status) === CDPStatus.active) {
       return new TroveWithPendingRewards({
@@ -357,18 +334,15 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
   }
 
   async getTotal() {
-    const [activeCollateral, activeDebt, liquidatedCollateral, closedDebt] = await Promise.all(
-      [
-        this.contract.getActiveColl(),
-        this.contract.getActiveDebt(),
-        this.contract.getLiquidatedColl(),
-        this.contract.getClosedDebt()
-      ].map(getBigNumber => getBigNumber.then(decimalify))
+    const [collateral, debt] = await Promise.all(
+      [this.contract.getTotalColl(), this.contract.getTotalDebt()].map(getBigNumber =>
+        getBigNumber.then(decimalify)
+      )
     );
 
     return new Trove({
-      collateral: activeCollateral.add(liquidatedCollateral),
-      debt: activeDebt.add(closedDebt),
+      collateral,
+      debt,
       virtualDebt: 0
     });
   }
@@ -377,14 +351,10 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     throw new Error("Method not implemented.");
   }
 
-  async getStabilityDeposit(_user = this.userAddress) {
-    const [deposit, depositAfterLoss, pendingCollateralGain] = await Promise.all([
-      this.contract.initialDeposits({ _user }).then(decimalify),
-      this.contract.getCompoundedCLVDeposit({ _user }).then(decimalify),
-      this.contract.getCurrentETHGain({ _user }).then(decimalify)
-    ]);
+  async getStabilityDeposit(owner = this.userAddress) {
+    const deposit = Decimal.from(await this.contract.getSPdep({ owner }));
 
-    return new StabilityDeposit({ deposit, depositAfterLoss, pendingCollateralGain });
+    return new StabilityDeposit({ deposit, depositAfterLoss: deposit, pendingCollateralGain: 0 });
   }
 
   watchStabilityDeposit(
@@ -395,7 +365,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
   }
 
   getQuiInStabilityPool() {
-    return this.contract.getStabilityPoolCLV().then(decimalify);
+    return this.contract.getSPdebt().then(decimalify);
   }
 
   watchQuiInStabilityPool(
