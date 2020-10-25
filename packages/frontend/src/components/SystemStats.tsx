@@ -1,0 +1,75 @@
+import React from "react";
+import { Card, Text, Heading, Link, Box } from "theme-ui";
+
+import { Decimal, Percent } from "@liquity/decimal";
+import { Trove } from "@liquity/lib-base";
+
+export type SystemStatsProps = {
+  variant?: string;
+  numberOfTroves: number;
+  price: Decimal;
+  total: Trove;
+  quiInStabilityPool: Decimal;
+  etherBalance?: Decimal;
+  quiBalance?: Decimal;
+};
+
+const GitHubCommit: React.FC<{ children?: string }> = ({ children }) =>
+  children?.match(/[0-9a-f]{40}/) ? (
+    <Link href={`https://github.com/liquity/dev/commit/${children}`}>{children.substr(0, 7)}</Link>
+  ) : (
+    <>unknown</>
+  );
+
+export const SystemStats: React.FC<SystemStatsProps> = ({
+  variant = "info",
+  numberOfTroves,
+  price,
+  total,
+  quiInStabilityPool,
+  etherBalance,
+  quiBalance
+}) => {
+  const quiInStabilityPoolPct =
+    total.debt.nonZero && new Percent(quiInStabilityPool.div(total.debt));
+  const totalCollateralRatioPct = new Percent(total.collateralRatio(price));
+
+  return (
+    <Card {...{ variant }}>
+      {etherBalance && quiBalance && (
+        <Box sx={{ mb: 3 }}>
+          <Heading>My Account Balances</Heading>
+          <Text>NEAR: {etherBalance.prettify(4)}</Text>
+          <Text>LQD: {quiBalance.prettify()}</Text>
+        </Box>
+      )}
+
+      <Heading>System</Heading>
+
+      <Text>Total number of Troves: {Decimal.prettify(numberOfTroves)}</Text>
+      <Text>LQD in circulation: {total.debt.shorten()}</Text>
+      {quiInStabilityPoolPct && (
+        <Text>Fraction of LQD in Stability Pool: {quiInStabilityPoolPct.toString(1)}</Text>
+      )}
+      <Text>Total collateral ratio: {totalCollateralRatioPct.prettify()}</Text>
+      {total.collateralRatioIsBelowCritical(price) && (
+        <Text color="danger">The system is in recovery mode!</Text>
+      )}
+
+      <Box sx={{ mt: 3, opacity: 0.66 }}>
+        {/* <Text sx={{ fontSize: 0 }}>
+          Contracts version: <GitHubCommit>{contractsVersion}</GitHubCommit>
+        </Text>
+        <Text sx={{ fontSize: 0 }}>Deployed: {new Date(deploymentDate).toLocaleString()}</Text> */}
+        <Text sx={{ fontSize: 0 }}>
+          Frontend version:{" "}
+          {process.env.NODE_ENV === "development" ? (
+            "development"
+          ) : (
+            <GitHubCommit>{process.env.REACT_APP_VERSION}</GitHubCommit>
+          )}
+        </Text>
+      </Box>
+    </Card>
+  );
+};

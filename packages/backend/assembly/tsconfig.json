@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "experimentalDecorators": true
+  },
+  "extends": "../asconfig.json",
+  "include": [
+    "./**/*.ts"
+  ]
+}

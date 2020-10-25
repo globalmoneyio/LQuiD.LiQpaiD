@@ -1,0 +1,12 @@
+# Editor temp files
+*~
+
+# macOS Finder attribute files
+.DS_Store
+
+node_modules
+
+# output of TypeScript transpilation
+/packages/*/dist
+
+.env

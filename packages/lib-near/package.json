@@ -1,0 +1,21 @@
+{
+  "name": "@liquity/lib-near",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "prepare": "tsc --project tsconfig.dist.json"
+  },
+  "peerDependencies": {
+    "@liquity/lib-base": "^0.0.1",
+    "near-api-js": "^0.30.0"
+  },
+  "devDependencies": {
+    "@ethersproject/bignumber": "^5.0.1",
+    "@liquity/decimal": "^0.0.1",
+    "@liquity/lib-base": "^0.0.1",
+    "near-api-js": "^0.30.0",
+    "typescript": "^3.9.5"
+  }
+}
