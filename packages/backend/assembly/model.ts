@@ -1,6 +1,6 @@
 
 import { ERR_USER_EXISTS, ERR_WITHDRAW_TOO_MUCH, ERR_REPAY_OVER } from './errors'
-import { u128, PersistentVector, PersistentMap, 
+import { u128, math, PersistentVector, PersistentMap, 
          ContractPromiseBatch, ContractPromise } from "near-sdk-as";
 
 export type AccountId = string
@@ -428,12 +428,22 @@ export function _computeICR( _coll: u128, _debt: u128, _price: u128 ): u128 {
   return u128.Zero;
 }
 
+function randomU32(): u32 {
+  let buf = math.randomBuffer(2);
+  return (
+    (0xff & buf[0]) << 24 |
+    (0xff & buf[1]) << 16 |
+    (0xff & buf[2]) << 8 |
+    (0xff & buf[3]) << 0
+  );
+}
 // TODO Oracle Cross Contract Call
 // https://www.crowdcast.io/e/hacktherainbow/register?session=14
 // https://github.com/smartcontractkit/near-protocol-contracts
 export function getPrice(): u128 {
-  let peak = u128.from(Math.floor(500));
-  let random = u128.from(Math.random());
-  let product = u128.mul(peak, random);
-  return product;
+  let random: u32 = randomU32() % 40000 + 10000;
+  return u128.mul(u128.from(random), u128.from(10000000000000000));  
 }
+// TODO
+// export function setPrice(newPrice: u128): u128 {  
+//}
