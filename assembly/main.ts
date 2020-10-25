@@ -75,10 +75,10 @@ export function getSPgains(owner: AccountId): Amount {
   return this.poolManager.getStabilityPoolNEARgain(owner);
 }
 export function getTotalColl(): Amount {
-  return this.cdpManager.getTotalCollateral();
+  return this.poolManager.getActiveLQD();
 }
 export function getTotalDebt(): Amount {
-  return this.cdpManager.getTotalDebt();
+  return this.poolManager.getActiveNEAR();
 }
 
 export function openLoan(_LQDAmount: Amount): void { // payable
@@ -98,12 +98,18 @@ export function openLoan(_LQDAmount: Amount): void { // payable
     else
       assert(!_isICRovereqTCR(ICR), ERR_NEW_TCR_WORSE);
   }
+  let fee: Amount = u128.mul(
+    _LQDAmount, u128.div(
+      _LQDAmount, 
+      poolManager.getTotalLQD()
+    )
+  ); 
   // Update loan properties
   cdpManager.setCDPStatus(user, 1);
   cdpManager.increaseCDPColl(user, value);
-  cdpManager.mintDebt(user, _LQDAmount);
+  cdpManager.mintDebt(user, _LQDAmount, fee);
   
-  let stake: Amount = cdpManager.updateStakeAndTotalStakes(user); 
+  let stake: Amount = cdpManager.updateStakeAndTotalStakes(user, poolManager.getTotalNEAR()); 
 
   let arrayIndex = cdpManager.addCDPOwnerToArray(user);
   emitCDPcreatedEvent(user, arrayIndex);
@@ -130,7 +136,7 @@ export function addColl(_user: AccountId): void { // payable
   }  
   // Update the CDP's coll and stake
   let newColl: Amount = cdpManager.increaseCDPColl(_user, value);
-  let stake: u128 = cdpManager.updateStakeAndTotalStakes(_user);
+  let stake: u128 = cdpManager.updateStakeAndTotalStakes(_user, poolManager.getTotalNEAR());
   
   if (isFirstCollDeposit) {     
       let arrayIndex = cdpManager.addCDPOwnerToArray(_user);
@@ -162,7 +168,7 @@ export function withdrawColl(_amount: Amount): void {
   
   // Update the CDP's coll and stake
   let newColl: Amount = cdpManager.decreaseCDPColl(user, _amount);
-  let stake: u128 = cdpManager.updateStakeAndTotalStakes(user);
+  let stake: u128 = cdpManager.updateStakeAndTotalStakes(user, poolManager.getTotalNEAR());
 
   if (newColl == u128.Zero) { 
       cdpManager.closeCDP(user);  
@@ -193,8 +199,14 @@ export function withdrawLQD(_amount: Amount): void {
 
   _requireNewTCRisAboveCCR(u128.Zero, 0, _amount, 1, price); 
   
+  let fee: Amount = u128.mul(
+    _amount, u128.div(
+      _amount, 
+      poolManager.getTotalLQD()
+    )
+  ); 
   // Increase the CDP's debt
-  let newDebt: Amount = cdpManager.mintDebt(user, _amount);
+  let newDebt: Amount = cdpManager.mintDebt(user, _amount, fee);
  
   // Mint the given amount of LQD to the owner's address and add them to the ActivePool
   poolManager.withdrawLQD(user, _amount);
@@ -268,7 +280,7 @@ export function adjustLoan(_collWithdrawal: Amount, _debtChange: u128, _isDebtIn
   //  --- Effects --- 
   let newColl: Amount = _updateTroveColl(user, collChange, isCollIncrease);
   let newDebt: Amount = _updateTroveDebt(user, _debtChange, _isDebtIncrease);
-  let stake = cdpManager.updateStakeAndTotalStakes(user);
+  let stake = cdpManager.updateStakeAndTotalStakes(user, poolManager.getTotalNEAR());
   // Close a CDP if it is empty, otherwise
   if (newDebt == u128.Zero && newColl == u128.Zero) {
       cdpManager.closeCDP(user);
@@ -302,35 +314,17 @@ export function redeemCollateral(_LQDamount: Amount): void {
 // deposit stablecoins to Stability Pool
 export function provideToSP(_amount: Amount): void {
   let user: AccountId = Context.predecessor;
-  this.poolManager.depositStableLQD(user, _amount);
-  
+  poolManager.depositStableLQD(user, _amount);
   // TODO
-  // var newDeposit = _amount;
-  // let compoundedLQDeposit = _getCompoundedLQDeposit(user);
-  // let LQDLoss = u128.sub(initialDeposit, compoundedLQDeposit);  
-  // newDeposit = u128.add(compoundedLQDeposit, _amount);
-  // _updateDeposit(user, newDeposit);
   // emit UserDepositChanged(user, newDeposit); 
 }
 
 // withdraws the user's accumulated collateral and debt gains from the Stability Pool to their address
 export function withdrawFromSP(_amount: Amount): void {
   let user: AccountId = Context.predecessor;
-  this.poolManager.withdrawStableLQD(user, _amount);
+  poolManager.withdrawStableLQD(user, _amount);
   
   // TODO
-  // var newDeposit = _amount;
-  // let compoundedLQDeposit = _getCompoundedLQDeposit(user);
-  // let LQDLoss = u128.sub(initialDeposit, compoundedLQDeposit);  
-  // newDeposit = u128.add(compoundedLQDeposit, _amount);
-  // _updateDeposit(user, newDeposit);
-  // emit UserDepositChanged(user, newDeposit); 
-  
-  // let NEARgain = this.poolManager.getCurrentETHGain(user);
-  // let LQDtoWithdraw = min(_amount, compoundedCLVDeposit);
-  // let LQDremainder = u128.sub(compoundedLQDeposit, LQDtoWithdraw);
-  // _updateDeposit(user, CLVremainder);
-  // this.poolManager.defaultPool.sendNEAR(user, NEARgain);
   // emit ETHGainWithdrawn(user, ETHGain, CLVLoss);
   // emit UserDepositChanged(user, CLVremainder);
 } 
@@ -350,19 +344,8 @@ export function liquidate(_user: AccountId): void {
   } else {
     V = _liquidateRecoveryMode(_user, ICR, price, stableLQD);
   }  
-  this.poolManager.offset(V.debtToOffset, V.collToSendToSP);
+  poolManager.offset(V.debtToOffset, V.collToSendToSP);
   _redistributeDebtAndColl(V.debtToRedistribute, V.collToRedistribute);
-
-  /* TODO
-  _updateSystemSnapshots_excludeCollRemainder(V.partialNewColl); // ?
-  _updatePartiallyLiquidatedTrove(V.partialAddr, // ?
-                                  V.partialNewDebt,
-                                  V.partialNewColl,
-                                  L.price);
-  poolManager.activePool.recapNEAR(V.gasComp);
-  // Send gas compensation to caller
-  cdpManager.increaseCDPColl(Context.predecessor, V.gasComp);  
-  */
 }
 
 
@@ -370,21 +353,17 @@ export function liquidate(_user: AccountId): void {
 // Helper functions
 // ----------------------------------------------------------------------------
 
-function _applyPendingRewards(_user: AccountId): void {
-  if (this.cdpManager.hasPendingGains(_user)) { 
-    _requireCDPisActive(cdpManager.getCDPStatus(_user));
-    let pendingNEAReward = this.cdpManager.getPendingCollateralGain(_user);
-    let pendingLQDebtPenalty = this.cdpManager.getPendingLQDebtPenalty(_user);  
-    // Apply pending rewards to trove's state
-    this.cdpManager.increaseCDPColl(_user, pendingNEAReward);
-    this.cdpManager.mintDebt(_user, pendingLQDebtPenalty);
-    // TODO
-    // _updateCDPRewardSnapshots(_user)
-    // Tell PM to transfer from DefaultPool to ActivePool
-    // poolManager.movePendingTroveRewardsToActivePool(pendingCLVDebtReward, pendingETHReward);
-    // emit CDPUpdated(_user, CDPs[_user].debt, CDPs[_user].coll, CDPs[_user].stake, CDPManagerOperation.applyPendingRewards);
-  }
-}
+// TODO
+// function _applyPendingRewards(_user: AccountId): void {
+//   if (cdpManager.hasPendingGains(_user)) { 
+//     _requireCDPisActive(cdpManager.getCDPStatus(_user));
+//     let pendingNEAReward = cdpManager.getPendingCollateralGain(_user);
+//     let pendingLQDebtPenalty = cdpManager.getPendingLQDebtPenalty(_user);  
+//     // Apply pending rewards to trove's state
+//     cdpManager.increaseCDPColl(_user, pendingNEAReward);
+//     cdpManager.mintDebt(_user, pendingLQDebtPenalty, u128.Zero);
+//   }
+// }
 
 function _getLiquidationVals( _debt: Amount, _coll: Amount, _stableLQD: Amount): LiquidationValues {
   var V: LiquidationValues;
@@ -419,18 +398,8 @@ function _liquidateNormalMode( _user: AccountId, _ICR: u128, _price: u128, _stab
   var cdpDebt = cdpManager.getCDPDebt(_user);
   var cdpColl = cdpManager.getCDPColl(_user);
   
-  // TODO
-  // this.poolManager.moveTroveRepoToActivePool(cdpDebt, cdpColl);
-  
   cdpManager.removeStake(_user); 
-
-  // TODO
-  // let gasComp = _getGasComp(cdpColl, _price);
-  // cdpColl = u128.sub(cdpColl, gasComp);
-
-  V = _getLiquidationVals(cdpDebt, cdpColl, _stableLQD);
-  // V.gasComp = gasComp;
-  
+  V = _getLiquidationVals(cdpDebt, cdpColl, _stableLQD);  
   cdpManager.closeCDP(_user);
   emitCDPliquidatedEvent(_user, cdpDebt, cdpColl, "NormalMode");
   return V;
@@ -444,16 +413,9 @@ function _liquidateRecoveryMode( _user: AccountId, _ICR: u128, _price: u128, _st
   if ( CDPOwners.length <= 1 ) return V;
   
   let cdpDebt = cdpManager.getCDPDebt(_user);
-  // let debtPenalty = cdpManager.
   var cdpColl = cdpManager.getCDPColl(_user);
-  
-  // TODO
-  // V.gasComp = _getGasComp(cdpColl, _price);
-  // cdpColl = u128.sub(cdpColl, V.gasComp);
 
   if ( _ICR <= PCT ) {
-    // TODO
-    // this.poolManager.moveTroveRepoToActivePool(cdpDebt, cdpColl);
     cdpManager.removeStake(_user); 
 
     V.debtToOffset = u128.Zero;
@@ -466,8 +428,6 @@ function _liquidateRecoveryMode( _user: AccountId, _ICR: u128, _price: u128, _st
   } 
   // if 100% < ICR < MCR, offset as much as possible, and redistribute the remainder
   else if ( (_ICR > PCT) && (_ICR < MCR) ) {
-    // TODO
-    // this.poolManager.moveTroveRepoToActivePool(cdpDebt, cdpColl);
     cdpManager.removeStake(_user); 
 
     V = _getLiquidationVals(cdpDebt, cdpColl, _stableLQD);
@@ -479,14 +439,13 @@ function _liquidateRecoveryMode( _user: AccountId, _ICR: u128, _price: u128, _st
   else if ( (_ICR >= MCR) && (_ICR < CCR) ) {
     if (!_stableLQD) return V;
     else partial = 'partial';
-    _applyPendingRewards(_user);
+    // TODO
+    // _applyPendingRewards(_user);
     cdpManager.removeStake(_user); 
     if (cdpDebt > _stableLQD) {
       V.debtToOffset = _stableLQD;
       let frac = u128.div(u128.mul(V.debtToOffset, cdpColl), cdpDebt);
-      // TODO
-      // V.gasComp = _getGasComp(frac, _price);
-      // V.collToSendToSP = u128.sub(frac, V.gasComp);
+      
       V.collToSendToSP = frac;
       V.collToRedistribute = u128.Zero;
       V.debtToRedistribute = u128.Zero;
@@ -495,8 +454,8 @@ function _liquidateRecoveryMode( _user: AccountId, _ICR: u128, _price: u128, _st
       cdpDebt = u128.sub(cdpDebt, _stableLQD);
       cdpColl = u128.sub(cdpColl, frac);
 
-      this.cdpManager.burnDebt(_user, _stableLQD);
-      this.cdpManager.decreaseCDPColl(_user, frac);
+      cdpManager.burnDebt(_user, _stableLQD);
+      cdpManager.decreaseCDPColl(_user, frac);
       
       // TODO
       //updateStakeAndTotalStakes(_user);  
@@ -524,10 +483,10 @@ function _redistributeDebtAndColl(_debt: Amount, _coll: Amount): void {
   // Offset as much debt & collateral as possible against the Stability Pool
   if (LQDInPool > u128.Zero) { 
     // Transfer the debt & coll from the Active Pool to the Default Pool
-    this.poolManager.defaultPool.increaseLQD(_debt);
-    this.poolManager.defaultPool.receiveNEAR(_coll);
-    this.poolManager.activePool.decreaseLQD(_debt);
-    this.poolManager.activePool.recapNEAR(_coll);
+    poolManager.stablePool.increaseLQD(_debt);
+    poolManager.stablePool.receiveNEAR(_coll);
+    poolManager.activePool.decreaseLQD(_debt);
+    poolManager.activePool.recapNEAR(_coll);
     let debtToOffset = min(_debt, LQDInPool);  
     
     // Collateral to be added in proportion to the debt that is cancelled 
@@ -610,9 +569,14 @@ function _updateTroveColl(_user: AccountId, _collChange: Amount, _isCollIncrease
 
 // Update trove's coll and debt based on whether they increase or decrease
 function _updateTroveDebt(_user: AccountId, _debtChange: Amount, _isDebtIncrease: i32): Amount {
-  var newDebt: Amount
+  var newDebt: Amount;
   if (_isDebtIncrease) {
-    newDebt = cdpManager.mintDebt(_user, _debtChange);
+    let fee: Amount = u128.mul(
+      _debtChange, u128.div(
+        _debtChange, 
+        poolManager.getTotalLQD()
+      )
+    ); newDebt = cdpManager.mintDebt(_user, _debtChange, fee);
   } else {
     newDebt = cdpManager.burnDebt(_user, _debtChange);
   }
@@ -701,8 +665,8 @@ function _getNewTCRFromTroveChange(
 function _getTCR(): u128 {
   let price = getPrice();
 
-  let activeColl = this.poolManager.getActiveNEAR();
-  let activeDebt = this.poolManager.getActiveLQD();
+  let activeColl = poolManager.getActiveNEAR();
+  let activeDebt = poolManager.getActiveLQD();
   
   return _computeICR(activeColl, activeDebt, price); 
 }
@@ -710,18 +674,10 @@ function _getTCR(): u128 {
 function _checkRecoveryMode(): bool {
   let price = getPrice();
 
-  let activeColl = this.poolManager.getActiveNEAR();
-  let activeDebt = this.poolManager.getActiveLQD();
+  let activeColl = poolManager.getActiveNEAR();
+  let activeDebt = poolManager.getActiveLQD();
   
   let TCR = _computeICR(activeColl, activeDebt, price); 
   
   return TCR < CCR;
-
-  // TODO Recovery mode should be triggered if the hypothetical TCR
-  // that would result if the entire stability pool was used to liquidate
-  // the riskiest positions drops below the critical threshold.
-
-  // In order to calculate the hypothetical TCR, you'd have to hypothetically
-  // liquidate troves in ascending order of collateral ratio, until the stability
-  // pool is emptied, and then take the resulting TCR.
 }

@@ -40,8 +40,6 @@ export class LiquidationValues {
   collToSendToSP: Amount;
   debtToRedistribute: Amount;
   collToRedistribute: Amount;
-  // TODO
-  // gasComp: Amount;
 }
 @nearBindgen
 export class RewardSnapshot { coll: Amount; debt: Amount }
@@ -78,27 +76,9 @@ export class TroveMgr {
   // fee revenue from redemptions and issuance 
   private totalFees: Amount;
 
-  // snapshot of the total collateral in ActivePool and DefaultPool, immediately after the last liquidation.
-  private totalCollateral: Amount; // TODO not incremented anywhere
-
-  private totalDebt: Amount; // TODO not incremented anywhere
-
-  /* TODO
-   * Track accumulated liquidation rewards per unit staked. 
-   * During it's lifetime, each stake earns:
-   *  An ETH gain of ( stake * [L_Coll - L_Coll(0)] ) 
-   *  A debt penalty  of ( stake * [L_Debt - L_Debt(0)] )
-   * Where L_Coll(0) and L_Debt(0) are snapshots of L_Coll and L_Debt
-   * for an active CDP when the stake was made 
-  */
-  private L_Coll: Amount;
-  private L_Debt: Amount;
-
   constructor() {
     this.totalStakes = u128.Zero;
-    this.totalCollateral = u128.Zero;
-    this.L_Coll = u128.Zero;
-    this.L_Debt = u128.Zero;
+    this.totalFees = u128.Zero;
   }
 
   payFee(_user: AccountId, _fee: Amount): void {
@@ -156,12 +136,9 @@ export class TroveMgr {
     CDPs.set(_user, cdp);
     return newColl;
   }
-  mintDebt(_user: AccountId, _debtIncrease: Amount): Amount {
-    let issuanceFee = u128.div(
-      u128.mul(_debtIncrease, u128.One), 
-      this.getTotalDebt()
-    ); let debtPlusFee = u128.add(_debtIncrease, issuanceFee);
-
+  mintDebt(_user: AccountId, _debtIncrease: Amount, _fee: Amount): Amount {
+    let debtPlusFee = u128.add(_debtIncrease, _fee);
+    this.totalFees = u128.add(this.totalFees, _fee);
     var cdp: CDP = CDPs.getSome(_user);
     let newDebt = u128.add(cdp.debt, debtPlusFee);
     cdp.debt = newDebt;
@@ -185,13 +162,13 @@ export class TroveMgr {
     return newDebt;
   }
 
-  updateStakeAndTotalStakes(_user: AccountId): u128 {
+  updateStakeAndTotalStakes(_user: AccountId, _totalCollateral: Amount): u128 {
     var cdp: CDP = CDPs.getSome(_user);
     var newStake = cdp.coll; 
     
-    if (this.totalCollateral > u128.Zero) {
+    if (_totalCollateral > u128.Zero) {
       newStake = u128.mul(cdp.coll, this.totalStakes);
-      newStake = u128.div(newStake, this.totalCollateral);
+      newStake = u128.div(newStake, _totalCollateral);
     }
     let oldStake = cdp.stake;
     cdp.stake = newStake;
@@ -216,7 +193,6 @@ export class TroveMgr {
     CDPs.set(_user, cdp);
     CDPOwners.swap_remove(<i32>cdp.arrayIndex);
   }
-  
   // Redeem as much collateral as possible from _cdpUser's CDP in exchange for LQD up to _maxLQDamount
   redeemCollateralFromCDP(_cdpUser: AccountId, _maxLQD: Amount, _price: u128): Amount {
     // Determine the remaining amount (lot) to be redeemed, capped by the entire debt of the CDP
@@ -225,7 +201,6 @@ export class TroveMgr {
     // TODO
     return u128.Zero;
   }
-
   // Remove use's stake from the totalStakes sum, and set their stake to 0
   removeStake(_user: AccountId): void {
     let cdp: CDP = CDPs.getSome(_user);
@@ -233,54 +208,21 @@ export class TroveMgr {
     cdp.stake = u128.Zero;
     CDPs.set(_user, cdp);
   }
-
-  hasPendingGains(_user: AccountId): bool {
-    let shot: RewardSnapshot = rewardSnapshots.getSome(_user);
-    return shot.coll < this.L_Coll;
-  }
-  getPendingCollateralGain(_user: AccountId): Amount {
-    let snapshot: RewardSnapshot = rewardSnapshots.getSome(_user);
-    let rewardPerUnitStaked = u128.sub(this.L_Coll, snapshot.coll); 
-    if (!rewardPerUnitStaked) return u128.Zero;
-    return u128.div(
-      u128.mul(this.getCDPStake(_user), rewardPerUnitStaked), PCT
-    );
-  }
-  getPendingLQDebtPenalty(_user: AccountId): Amount {
-    let snapshot: RewardSnapshot = rewardSnapshots.getSome(_user);
-    let rewardPerUnitStaked = u128.sub(this.L_Debt, snapshot.debt); 
-    if (!rewardPerUnitStaked) return u128.Zero;
-    return u128.div(
-      u128.mul(this.getCDPStake(_user), rewardPerUnitStaked), PCT
-    );
-  }
   // Return the current collateral ratio (ICR) of a given CDP
   getCurrentICR(_user: AccountId, _price: u128): u128 {  
     return _computeICR (this.getCDPColl(_user), this.getCDPDebt(_user), _price);      
   }
-  getCDPColl(_user: AccountId): Amount { // TODO
-    // let pendingNEAReward: Amount = this._computePendingNEAReward(_user);
-    // let cdpColl: Amount = u128.add(this.getCDP(_user).coll, pendingNEAReward);
+  getCDPColl(_user: AccountId): Amount {
     return this.getCDP(_user).coll;
-    // return cdpColl;
   }
   getCDPStake(_user: AccountId): Amount {
     return this.getCDP(_user).stake;
   }
-  getCDPDebt(_user: AccountId): Amount { // TODO
-    // let pendingDebtReward: Amount = this._computePendingDebtReward(_user);
-    // let cdpDebt: Amount = u128.add(this.getCDP(_user).debt, pendingDebtReward);
+  getCDPDebt(_user: AccountId): Amount {
     return this.getCDP(_user).debt;
-    // return cdpDebt;
   }
   getCDP(_user: AccountId): CDP {
     return CDPs.getSome(_user);
-  }
-  getTotalCollateral(): Amount {
-    return this.totalCollateral;
-  }
-  getTotalDebt(): Amount {
-    return this.totalDebt;
   }
 }
 
@@ -328,24 +270,10 @@ class Pool {
 export class PoolMgr {
   activePool: Pool;
   stablePool: Pool;
-  defaultPool: Pool;
-  /* 
-   * Running product by which to multiply an initial deposit, in order to find the
-   * current compounded deposit, given a series of liquidations, each of which cancel
-   * some LQD debt with the deposit. During its lifetime, a deposit's value evolves 
-   * from d(0) to (d(0) * P / P(0) ), where P(0)is the snapshot of P taken at the 
-   * instant the deposit was made. 18 DP decimal.  
-  */
-  private product: u128;
-  // Each time the scale of P shifts by 1e18, the scale is incremented by 1
-  private scale: u128; 
-  // With each offset that fully empties the Pool, the epoch is incremented by 1
-  private epoch: u128;  
 
   constructor() {
     this.activePool = new Pool();
     this.stablePool = new Pool();
-    this.defaultPool = new Pool();
   }
   getStableLQD(): Amount {
     return this.stablePool.getLQD();
@@ -354,7 +282,7 @@ export class PoolMgr {
     return this.activePool.getLQD();
   }
   getTotalLQD(): Amount {
-    return u128.add(this.activePool.getLQD(), this.defaultPool.getLQD());
+    return u128.add(this.getActiveLQD(), this.getStableLQD());
   }
   getStableNEAR(): Amount {
     return this.stablePool.getNEAR();
@@ -363,7 +291,7 @@ export class PoolMgr {
     return this.activePool.getNEAR();
   }
   getTotalNEAR(): Amount {
-    return u128.add(this.activePool.getNEAR(), this.defaultPool.getNEAR());
+    return u128.add(this.activePool.getNEAR(), this.getActiveNEAR());
   }
   getDebtPenaltyPerUnitStaked(_debtToOffset: Amount, stableLQD: Amount): Amount {
     return u128.div(u128.mul(_debtToOffset, PCT), stableLQD);
@@ -378,6 +306,8 @@ export class PoolMgr {
   }
   getStabilityPoolNEARgain(_account: AccountId): Amount {  
     // TODO
+    let stake = u128.div(this.getStabilityPoolDeposit(_account), this.getStableLQD());
+
     return u128.Zero;
   }
   depositStableLQD(_account: AccountId, _LQD: Amount): void {
@@ -389,6 +319,8 @@ export class PoolMgr {
     } else deposit = _LQD;
 
     stableLQDeposits.set(_account, deposit);
+
+    //TODO updateTotalStakes
 
     let token = new TokenApi();
     let promise = token.burn(_account, _LQD);
@@ -422,7 +354,7 @@ export class PoolMgr {
     this.activePool.receiveNEAR(_amount);
   }
   // Transfer the specified amount of ETH to _account
-  withdrawColl(_account: AccountId, _NEAR: Amount): void { // TODOs
+  withdrawColl(_account: AccountId, _NEAR: Amount): void { // s
     this.activePool.sendNEAR(_account, _NEAR);
   }
   // Burn the calculated lot of LQD and send the corresponding ETH to to _account
@@ -437,9 +369,9 @@ export class PoolMgr {
     promise.returnAsResult();
   }
   moveTroveRepoToActivePool(debtPenalty: Amount, collateralReward: Amount): void {
-    this.defaultPool.decreaseLQD(debtPenalty);
+    this.stablePool.decreaseLQD(debtPenalty);
     this.activePool.increaseLQD(debtPenalty);
-    this.defaultPool.recapNEAR(collateralReward);
+    this.stablePool.recapNEAR(collateralReward);
     this.activePool.receiveNEAR(collateralReward);
   }
   /* Cancel out the specified _debt against the CLV contained in the Stability Pool (as far as possible)  
@@ -448,44 +380,9 @@ export class PoolMgr {
   offset(_debtToOffset: Amount, _collToAdd: Amount): void {
     let stableLQD = this.getStableLQD(); 
     if (!stableLQD || !_debtToOffset) return; 
-    this.updateRewardSumAndProduct(
-      this.getDebtPenaltyPerUnitStaked(_debtToOffset, stableLQD),
-      this.getCollateralRewardPerUnitStaked(_collToAdd, stableLQD)
-    );
+    //TODO
     this.moveOffsetCollAndDebt(_collToAdd, _debtToOffset);
   } 
-  updateRewardSumAndProduct(_NEARgain: Amount, _LQDloss: Amount): void {
-    // Make product factor 0 if there was a pool-emptying. 
-    // Otherwise, it is (1 - LQDLossPerUnitStaked)
-    var newProductFactor: u128;
-    if (_LQDloss >= PCT) 
-      newProductFactor = u128.Zero;
-    else 
-      newProductFactor = u128.sub(PCT, _LQDloss);
-      
-    // Update the NEAR reward sum at the current scale and current epoch
-    let marginalGain = u128.mul(_NEARgain, this.product);
-    let key: string = this.epoch.toString() + "," + this.scale.toString();
-    let oldESS: u128 = epochToScaleToSum.getSome(key);
-    
-    epochToScaleToSum.set(key, u128.add(oldESS, marginalGain));
-    // If the Pool was emptied, increment the epoch and reset the scale and product P
-    if (!newProductFactor) {
-        this.epoch = u128.add(this.epoch, u128.One);
-        this.scale = u128.Zero;
-        this.product = PCT;
-    } 
-    else {
-      // If multiplying P by a non-zero product factor would round P to zero, increment the scale 
-      let newProduct = u128.mul(this.product, newProductFactor);
-      if (newProduct < PCT) {
-          this.product = newProduct;
-          this.scale = u128.add(this.scale, u128.One);
-      } else {
-          this.product = u128.div(newProduct, PCT); 
-      }
-    }
-  }
   moveOffsetCollAndDebt(_collToAdd: Amount, _debtToOffset: Amount): void {
      // Cancel the liquidated CLV debt with the CLV in the stability pool
      this.activePool.decreaseLQD(_debtToOffset);  
@@ -503,9 +400,9 @@ export class PoolMgr {
   liquidate(_LQD: Amount, _NEAR: Amount): void {
     // Transfer the debt & coll from the Active Pool to the Default Pool
     this.activePool.decreaseLQD(_LQD);
-    this.defaultPool.increaseLQD(_LQD);
+    this.stablePool.increaseLQD(_LQD);
     this.activePool.recapNEAR( _NEAR);
-    this.defaultPool.receiveNEAR(_NEAR);
+    this.stablePool.receiveNEAR(_NEAR);
   }
 } 
 
