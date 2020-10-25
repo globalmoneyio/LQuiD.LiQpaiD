@@ -386,8 +386,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
   }
 
   getQuiBalance(owner_id = this.userAddress) {
-    // return this.token.get_balance({ owner_id }).then(decimalify);
-    return Promise.resolve(Decimal.from(0));
+    return this.token.get_balance({ owner_id }).then(decimalify).catch(() => Decimal.from(0));
   }
 
   watchQuiBalance(onQuiBalanceChanged: (balance: Decimal) => void, address?: string): () => void {
