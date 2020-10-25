@@ -195,24 +195,32 @@ export class TroveMgr {
     CDPOwners.swap_remove(<i32>cdp.arrayIndex);
   }
   // Redeem as much collateral as possible from _cdpUser's CDP in exchange for LQD up to _maxLQDamount
-  redeemCollateralFromCDP(_user: AccountId, _maxLQD: Amount, 
-                          _totalColl: Amount, _totalDebt: Amount, _price: u128): Amount {
+  redeemCollateralFromCDP(_totalColl: Amount, _totalDebt: Amount, _maxLQD: Amount, _price: u128, _user: AccountId): string {
     // Determine the remaining amount (lot) to be redeemed, capped by the entire debt of the CDP
     let cdp: CDP = CDPs.getSome(_user);
-    /* TODO
     let TCRwith = _computeICR(_totalColl, _totalDebt, _price);
+    let totalCollWithout: Amount = u128.sub(_totalColl, cdp.coll);
+    let totalDebtWithout: Amount = u128.sub(_totalDebt, cdp.debt);
     let TCRwithout = _computeICR(
-      u128.sub(_totalColl, cdp.coll), 
-      u128.sub(_totalDebt, cdp.debt),
+      totalCollWithout,
+      totalDebtWithout,
       _price
     );
     let TCRdelta = u128.sub(TCRwith, TCRwithout);
     let TCRshare = u128.div(TCRdelta, TCRwith);
-    let toRedeem = min(u128.mul(_maxLQD, TCRshare), cdp.debt);
-    */
-    // TODO, adjust the cdp
+    
+    let debtToRedeem = min(u128.mul(_maxLQD, TCRshare), cdp.debt);
+    let debtShare = u128.div(debtToRedeem, cdp.debt);
+    let collToRedeem = u128.mul(debtShare, cdp.coll);
+    
+    cdp.debt = u128.sub(cdp.debt, debtToRedeem);
+    cdp.coll = u128.sub(cdp.coll, collToRedeem);
+    if (cdp.debt == u128.Zero && cdp.coll == u128.Zero)
+      this.closeCDP(_user);
+    else
+      CDPs.set(_user, cdp);
 
-    return u128.Zero;
+    return cdp.debt.toString() + "," + cdp.coll.toString();
   }
   // Remove use's stake from the totalStakes sum, and set their stake to 0
   removeStake(_user: AccountId): void {

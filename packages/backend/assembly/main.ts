@@ -38,7 +38,8 @@ import {
   ERR_OVERDRAW_NEAR,
   ERR_CDP_INACTIVE,
   ERR_IN_RECOVERY,
-  ERR_REPAY_OVER
+  ERR_REPAY_OVER,
+  ERR_REDEEM_OVER
 } from "./errors";
 
 let cdpManager: TroveMgr;
@@ -304,20 +305,22 @@ export function redeemCollateral(_LQDamount: Amount): void {
   let price = getPrice();
   var currentUser: AccountId;
   var remainingLQD = _LQDamount;
-  let totalColl = poolManager.getActiveNEAR();
-  let totalDebt = poolManager.getActiveLQD();
+
   for (let i = 0; i < CDPOwners.length; i++) {
     if (remainingLQD == u128.Zero)
       break;
     if (cdpManager.getCurrentICR(currentUser, price) < MCR) 
       continue;
     currentUser = CDPOwners[i];
-    remainingLQD = u128.sub(remainingLQD, 
-      cdpManager.redeemCollateralFromCDP(
-        currentUser, remainingLQD, totalColl, totalDebt, price
-      )
-    );  
-  } 
+    let redeemed: string[] = cdpManager.redeemCollateralFromCDP(
+      poolManager.getActiveNEAR(), poolManager.getActiveLQD(),
+      remainingLQD, price, currentUser ).split(",");
+    let redeemedDebt = u128.fromString(redeemed[0]);
+    let redeemedColl = u128.fromString(redeemed[1]);
+    remainingLQD = u128.sub(remainingLQD, redeemedDebt);  
+    poolManager.redeemCollateral(currentUser, redeemedDebt, redeemedColl);
+  }
+  assert(remainingLQD == u128.Zero, ERR_REDEEM_OVER);
 }
 
 // deposit stablecoins to Stability Pool
