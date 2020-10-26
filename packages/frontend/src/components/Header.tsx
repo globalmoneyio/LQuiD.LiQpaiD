@@ -1,10 +1,7 @@
 import React from "react";
-import { Container, Flex, Box, Heading, Link } from "theme-ui";
+import { Container, Flex, Box, Heading } from "theme-ui";
 
-import { LiquityLogo, LiquityLogoSmall } from "./LiquityLogo";
 import { Abbreviation } from "./Abbreviation";
-
-const logoHeight = "32px";
 
 export const Header: React.FC = ({ children }) => (
   <Container variant="header">
