@@ -90,9 +90,8 @@ export class TroveMgr {
 
   addCDPOwnerToArray(_user: AccountId): usize {
     let index = CDPOwners.length;
-    assert(!CDPs.contains(_user), ERR_USER_EXISTS);
+    let cdp = CDPs.getSome(_user);
     CDPOwners.push(_user);
-    var cdp: CDP = new CDP();
     cdp.arrayIndex = index;
     CDPs.set(_user, cdp);
     return index;
