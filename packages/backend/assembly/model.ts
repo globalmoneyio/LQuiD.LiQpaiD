@@ -7,6 +7,8 @@ export type AccountId = string
 export type Amount = u128
 // export type Stake = u128
 // export type Ratio = u128
+export const SCALING_FACTOR = u128.from(1000000); // Collateral is 24 digits, so we need to
+                                                  // divide by 10^6 to scale it down to 18
 export const MCR = u128.from(1100000000000000000); // Minimal Collateral Ratio, 110%
 // If the total system collateral (TCR) falls below the CCR, Recovery Mode is triggered.
 export const CCR = u128.from(1500000000000000000); // Critical Collateral Ratio, 150% 
@@ -87,9 +89,8 @@ export class TroveMgr {
 
   addCDPOwnerToArray(_user: AccountId): usize {
     let index = CDPOwners.length;
-    assert(!CDPs.contains(_user), ERR_USER_EXISTS);
+    let cdp = CDPs.getSome(_user);
     CDPOwners.push(_user);
-    var cdp: CDP = new CDP();
     cdp.arrayIndex = index;
     CDPs.set(_user, cdp);
     return index;
@@ -437,8 +438,9 @@ export function _computeICR( _coll: u128, _debt: u128, _price: u128 ): u128 {
     return u128.One;
   }
   else if ( _debt > u128.Zero ) {
-      let newCollRatio: u128 = u128.mul( _coll, _price );
-      return u128.div( newCollRatio, _debt );
+      let collPerDebt: u128 = u128.div( _coll, _debt );
+      let collRatio24Decimals = u128.mul( collPerDebt, _price );
+      return u128.div( collRatio24Decimals, SCALING_FACTOR );
   }
   // Return the maximal value for uint256 if the CDP has a debt of 0
   else if ( _debt == u128.Zero ) {

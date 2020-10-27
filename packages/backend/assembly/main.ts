@@ -101,7 +101,7 @@ export function openLoan(_LQDAmount: Amount): void { // payable
   if (_LQDAmount > u128.Zero) {
     _requireICRisAboveMCR(ICR);
     
-    if (!_checkRecoveryMode)
+    if (!_checkRecoveryMode())
       _requireNewTCRisAboveCCR(value, 1, _LQDAmount, 1, price); 
     //else
     //  assert(!_isICRovereqTCR(ICR), ERR_NEW_TCR_WORSE);
