@@ -60,10 +60,9 @@ export class TokenApi {
  * nested mapping (epoch => scale => sum), where the key is a composite
  * as follows: "scaleIndex,epochIndex"
 */
-export const epochToScaleToSum = new PersistentMap<string, u128>("ess");
+
 export const CDPOwners = new PersistentVector<AccountId>("owners");
 export const CDPs = new PersistentMap<AccountId, CDP>("cdps");
-export const rewardSnapshots = new PersistentMap<AccountId, RewardSnapshot>("rewards");
 export const stableLQDeposits = new PersistentMap<AccountId, Amount>("deposits");
 
 @nearBindgen
@@ -149,8 +148,9 @@ export class TroveMgr {
     */ let token = new TokenApi(); 
     let promise = token.mint(_user, _debtIncrease);
     promise.returnAsResult();
-    return newDebt;
+    return newDebt; // TODO can't return two things at the same time
   }
+  // TODO another method for the cross contract call 
   burnDebt(_user: AccountId, _debtDecrease: Amount): Amount {
     var cdp: CDP = CDPs.getSome(_user);
     assert(_debtDecrease < cdp.debt, ERR_REPAY_OVER);
@@ -252,6 +252,7 @@ class MintBurnArgs {
 }
 @nearBindgen
 class Pool {
+  // TODO storage
   private NEAR: Amount;  // deposited collateral tracker
   private LQD: Amount;  // total outstanding CDP debt
   

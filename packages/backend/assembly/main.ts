@@ -15,7 +15,7 @@
  * their deposit will have a computed NEAR gain based on a variable in the PoolManager. 
  * But their actual withdrawable NEAR is in the balance of the StabilityPool contract.
  */
-import { Context, u128, storage, math } from "near-sdk-as";
+import { Context, u128, storage, math, context } from "near-sdk-as";
 import { 
   PCT, MCR, CCR, LOGIC_CONTRACT,
   _computeICR, min, CDP, CDPs, 
@@ -89,7 +89,10 @@ export function getTotalDebt(): Amount {
 }
 
 export function openLoan(_LQDAmount: Amount): void { // payable
-  let user: AccountId = Context.predecessor; 
+  // signer, who started the promise chain
+  let user: AccountId = Context.predecessor; // who came before you in the promise chain 
+  // Context.contractName is the currently running contract
+
   let value: Amount = Context.attachedDeposit;
   let price = getPrice();
 
@@ -292,7 +295,6 @@ export function adjustLoan(_collWithdrawal: Amount, _debtChange: u128, _isDebtIn
   emitCDPupdatedEvent(user, newDebt, newColl, stake); 
 }
 
-//TODO
 export function redeemCollateral(_LQDamount: Amount): void {
   
   let price = getPrice();
