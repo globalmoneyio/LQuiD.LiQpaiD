@@ -1,6 +1,6 @@
 
-import { ERR_USER_EXISTS, ERR_WITHDRAW_TOO_MUCH, ERR_REPAY_OVER } from './errors'
-import { u128, PersistentVector, PersistentMap, 
+import { ERR_WITHDRAW_TOO_MUCH, ERR_REPAY_OVER } from './errors'
+import { u128, PersistentVector, PersistentMap, storage,
          ContractPromiseBatch, ContractPromise } from "near-sdk-as";
 
 export type AccountId = string
@@ -62,7 +62,6 @@ export class TokenApi {
  * nested mapping (epoch => scale => sum), where the key is a composite
  * as follows: "scaleIndex,epochIndex"
 */
-
 export const CDPOwners = new PersistentVector<AccountId>("owners");
 export const CDPs = new PersistentMap<AccountId, CDP>("cdps");
 export const stableLQDeposits = new PersistentMap<AccountId, Amount>("deposits");
@@ -71,7 +70,7 @@ export const stableLQDeposits = new PersistentMap<AccountId, Amount>("deposits")
 export class TroveMgr { 
   // snapshot of the value of totalStakes immediately after the last liquidation
   private totalStakes: u128;  
-
+  private feePct: u128; // fee in percentage points
   // fee revenue from redemptions and issuance 
   private totalFees: Amount;
 
@@ -82,7 +81,17 @@ export class TroveMgr {
 
   payFee(_user: AccountId, _fee: Amount): void {
     let cdp = CDPs.getSome(_user);
+    
     this.totalFees = u128.add(this.totalFees, _fee);
+    //this.feePct = u128.mul(this.feePct, );
+
+    // issuanceFee(amount) = c * baseRate * amount
+    // redemptionFee(amount) = d * baseRate * amount
+
+    
+    storage.set<u128>("fees", this.totalFees);
+    storage.set<u128>("fee", this.feePct);
+    
     cdp.debt = u128.add(cdp.debt, _fee);
     CDPs.set(_user, cdp); 
   }
@@ -183,10 +192,7 @@ export class TroveMgr {
     cdp.status = Status.closed;
     cdp.coll = u128.Zero;
     cdp.debt = u128.Zero;
-    let shot: RewardSnapshot = rewardSnapshots.getSome(_user);
-    shot.debt = u128.Zero;
-    shot.coll = u128.Zero;
-    rewardSnapshots.set(_user, shot);
+    
     this.totalStakes = u128.sub(this.totalStakes, cdp.stake);
     cdp.stake = u128.Zero;
     CDPs.set(_user, cdp);

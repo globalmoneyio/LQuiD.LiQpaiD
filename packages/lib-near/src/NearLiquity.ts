@@ -143,7 +143,8 @@ export class WrappedNearTransaction {
     return this.promise;
   }
 }
-const AMPLE_GAS = "300000000000000";
+
+const AMPLE_GAS = "1000000000000";
 const NEAR_SCALING_FACTOR = Decimal.from("1000000"); // Quick hack: NEAR uses 6 more decimals
 
 const numberify = (numberString: string) => parseInt(numberString, 10);
@@ -157,8 +158,8 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
 
   constructor(
     account: nearAPI.Account,
-    contractId = "globalmoney.testnet",
-    tokenId = "quid.globalmoney.testnet"
+    contractId = "quid.globalmoney.testnet",
+    tokenId = "lqd.globalmoney.testnet"
   ) {
     this.contract = new nearAPI.Contract(account, contractId, liquityMethods) as LiquityContract;
     this.token = new nearAPI.Contract(account, tokenId, tokenMethods) as TokenContract;
@@ -169,7 +170,7 @@ export class NearLiquity implements ReadableLiquity, TransactableLiquity<Wrapped
     return new WrappedNearTransaction(
       this.contract.openLoan(
         { _LQDAmount: `${trove.debt.bigNumber}` },
-        AMPLE_GAS,
+        "10000000000000", // 5 Tgas needed, put 2x to be safe
         `${trove.collateral.mul(NEAR_SCALING_FACTOR).bigNumber}`
       )
     );

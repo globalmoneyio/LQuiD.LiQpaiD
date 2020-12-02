@@ -50,6 +50,13 @@ export function init(): void {
 // TODO Oracle Cross Contract Call
 // https://www.crowdcast.io/e/hacktherainbow/register?session=14
 // https://github.com/smartcontractkit/near-protocol-contracts
+// https://stackoverflow.com/questions/64110056/how-to-build-and-deploy-multiple-contracts-in-near-protocol
+export function getTotalFees(): Amount {
+  if (storage.contains("fees"))
+    return storage.getSome<u128>("fees");
+  else 
+    return u128.Zero;
+}
 export function getPrice(): u128 {
   if (storage.contains("price"))
     return storage.getSome<u128>("price");
@@ -327,6 +334,7 @@ export function provideToSP(_amount: Amount): void {
 }
 
 // withdraws the user's accumulated collateral and debt gains from the Stability Pool to their address
+// should allow withdrawal of ETH gain without touching the deposit
 export function withdrawFromSP(_amount: Amount): void {
   let user: AccountId = Context.predecessor;
   poolManager.withdrawStableLQD(user, _amount);
@@ -433,7 +441,7 @@ function _liquidateRecoveryMode( _user: AccountId, _ICR: u128, _price: u128, _st
     
     cdpManager.closeCDP(_user);
   } 
-  // if 100% < ICR < MCR, offset as much as possible, and redistribute the remainder
+  // if 100% < ICR < MCR, offset maximumally, redistribute remainder
   else if ( (_ICR > PCT) && (_ICR < MCR) ) {
     cdpManager.removeStake(_user); 
 
