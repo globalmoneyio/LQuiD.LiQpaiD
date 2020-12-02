@@ -88,7 +88,6 @@ export class TroveMgr {
     // issuanceFee(amount) = c * baseRate * amount
     // redemptionFee(amount) = d * baseRate * amount
 
-    
     storage.set<u128>("fees", this.totalFees);
     storage.set<u128>("fee", this.feePct);
     
