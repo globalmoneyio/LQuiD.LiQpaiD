@@ -3,15 +3,15 @@ import { Context, u128, PersistentDeque, logging } from "near-sdk-as";
 import { AccountId } from "./model";
 
 @nearBindgen
-export class CDPCreatedEvent {
-    _user: string;
-    arrayIndex: usize;
+export class TroveCreatedEvent {
+    _usr: string;
+    arrayIndex: i32;
     date: u64;
 }
 
 @nearBindgen
-export class CDPUpdatedEvent {
-    _user: string;
+export class TroveUpdatedEvent {
+    _usr: string;
     _debt: u128;
     _coll: u128;
     _stake: u128;
@@ -19,60 +19,60 @@ export class CDPUpdatedEvent {
 }
 
 @nearBindgen
-export class CDPLiquidatedEvent {
-    _user: string;
+export class TroveLiquidatedEvent {
+    _usr: string;
     _debt: u128;
-    _coll: u128;
+    _collat: u128;
     _mode: string;
     date: u64;
 }
 
-export const createdEvents = new PersistentDeque<CDPCreatedEvent>("created");
-export const updatedEvents = new PersistentDeque<CDPUpdatedEvent>("updated");
-export const liquidatedEvents = new PersistentDeque<CDPLiquidatedEvent>("liquidated");
+export const createdEvents = new PersistentDeque<TroveCreatedEvent>("created");
+export const updatedEvents = new PersistentDeque<TroveUpdatedEvent>("updated");
+export const liquidatedEvents = new PersistentDeque<TroveLiquidatedEvent>("liquidated");
 
-export function emitCDPcreatedEvent(_user: string, arrayIndex: usize): void {
-    logging.log("[call] CDPcreatedEvent(" + _user + ")");
-    const created = new CDPCreatedEvent();
-    created._user = _user;
+export function emitTroveCreatedEvent(_usr: string, arrayIndex: i32): void {
+    logging.log("[call] TroveCreatedEvent(" + _usr + ")");
+    const created = new TroveCreatedEvent();
+    created._usr = _usr;
     created.arrayIndex = arrayIndex;
     created.date = <u64>Context.blockIndex;
     createdEvents.pushFront(created);
 }
 
-export function emitSPdepositUpdated(_user: AccountId, _debtChange: u128): void {
-    
+export function emitSPdepositUpdated(_usr: AccountId, _debtChange: u128): void {
+    // TODO
 }
 
-export function emitCDPupdatedEvent(_user: string, _debt: u128, _coll: u128, _stake: u128): void {
+export function emitTroveUpdatedEvent(_usr: string, _debt: u128, _collat: u128, _stake: u128): void {
     logging.log(
         "[call] CDPupdatedEvent(" 
-        + _user + ", "
+        + _usr + ", "
         + _debt.toString() + ", " 
-        + _coll.toString() + ", " 
+        + _collat.toString() + ", " 
         + _stake.toString() + ")"
     ); 
-    const updated = new CDPUpdatedEvent();
-    updated._user = _user;
+    const updated = new TroveUpdatedEvent();
+    updated._usr = _usr;
     updated._debt = _debt;
-    updated._coll = _coll;
+    updated._coll = _collat;
     updated._stake = _stake;
     updated.date = <u64>Context.blockIndex;
     updatedEvents.pushFront(updated);
 }
 
-export function emitCDPliquidatedEvent(_user: string, _debt: u128, _coll: u128, _mode: string): void {
+export function emitTroveLiquidatedEvent(_usr: string, _debt: u128, _collat: u128, _mode: string): void {
     logging.log(
         "[call] CDPliquidatedEvent(" 
-        + _user + ", " 
+        + _usr + ", " 
         + _debt.toString() + ", " 
-        + _coll.toString() + ", " 
+        + _collat.toString() + ", " 
         + _mode + ")"
     );
-    const liquidated = new CDPLiquidatedEvent();
-    liquidated._user = _user;
+    const liquidated = new TroveLiquidatedEvent();
+    liquidated._usr = _usr;
     liquidated._debt = _debt;
-    liquidated._coll = _coll;
+    liquidated._collat = _collat;
     liquidated._mode = _mode;
     liquidated.date = <u64>Context.blockIndex;
     liquidatedEvents.pushFront(liquidated);

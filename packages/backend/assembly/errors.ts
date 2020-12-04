@@ -1,4 +1,5 @@
-export const ERR_WITHDRAW_TOO_MUCH = 'Amount must be less than or equal to Stability Pool depsoit'
+
+export const ERR_WITHDRAW_TOO_MUCH = "Amount must be less than or equal to Stability Pool deposit"
 export const ERR_USER_EXISTS = "CDP already exists for this user, use adjustLoan"
 export const ERR_CDP_INACTIVE = "Trove does not exist or is closed"
 export const ERR_IN_RECOVERY = "Operation not permitted during Recovery Mode"
@@ -9,3 +10,6 @@ export const ERR_OVERDRAW_NEAR = "Insufficient balance for ETH withdrawal"
 export const ERR_AMT_BELOW_ZERO = "Amount must be larger than 0"
 export const ERR_REPAY_OVER = "Amount repaid must not be larger than the CDP's debt"
 export const ERR_REDEEM_OVER = "Amount redeemed cannot be more than the what is redeemable"
+export const ERR_TROVE_STATUS = "Inappropriate Trove status provided"
+export const ERR_ZERO_DEBT = "Can't open a Trove with zero debt"
+export const ERR_NEW_ICR_UNDER_TCR = "Can't open Trove in recovery mode with ICR below TCR"
