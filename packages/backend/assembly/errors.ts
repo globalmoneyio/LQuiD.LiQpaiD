@@ -1,5 +1,5 @@
 
-export const ERR_WITHDRAW_TOO_MUCH = 'Amount must be less than or equal to Stability Pool deposit'
+export const ERR_WITHDRAW_TOO_MUCH = "Amount must be less than or equal to Stability Pool deposit"
 export const ERR_USER_EXISTS = "CDP already exists for this user, use adjustLoan"
 export const ERR_CDP_INACTIVE = "Trove does not exist or is closed"
 export const ERR_IN_RECOVERY = "Operation not permitted during Recovery Mode"

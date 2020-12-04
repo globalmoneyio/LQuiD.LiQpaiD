@@ -58,7 +58,10 @@ export function getTotalFees(): Amount {
   return troveMgr.getTotalFees();
 }
 export function getPrice(): u128 {
-  return storage.get<u128>("price", u128.One);
+  if (storage.contains("price"))
+    return storage.getSome<u128>("price");
+  else
+    return u128.One;
 }
 export function setPrice( newPrice: u128 ): void {  
   storage.set<u128>("price", newPrice);
@@ -122,6 +125,7 @@ export function openTrove( _LQDAmt: Amount ): void { // payable
   emitTroveUpdatedEvent( usr, _LQDAmt, val, 
   troveMgr.updateStakes( usr, poolMgr.getTotalNEAR() ) );
 }
+
 export function closeTrove(): void {
   let usr = Context.predecessor; 
   let status = troveMgr.getStatus(usr);
@@ -355,8 +359,8 @@ function _requireLQDRepaymentAllowed( _currentDebt: Amount, _debtRepayment: Amou
 function _requireNonZeroAmt( _amt: Amount ): void {
   assert( _amt > u128.Zero, ERR_AMT_BELOW_ZERO );
 }
-function _requireTroveActive( status: u16 ): void {
-  assert( status == 1, ERR_CDP_INACTIVE );
+function _requireTroveActive( status: Status ): void {
+  assert( status == Status.active, ERR_CDP_INACTIVE );
 }
 function _requireNotInRecoveryMode(): void {
   assert( !_checkRecoveryMode(), ERR_IN_RECOVERY );

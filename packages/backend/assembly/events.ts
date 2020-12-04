@@ -31,7 +31,7 @@ export const createdEvents = new PersistentDeque<TroveCreatedEvent>("created");
 export const updatedEvents = new PersistentDeque<TroveUpdatedEvent>("updated");
 export const liquidatedEvents = new PersistentDeque<TroveLiquidatedEvent>("liquidated");
 
-export function emitTroveCreatedEvent(_usr: string, arrayIndex: usize): void {
+export function emitTroveCreatedEvent(_usr: string, arrayIndex: i32): void {
     logging.log("[call] TroveCreatedEvent(" + _usr + ")");
     const created = new TroveCreatedEvent();
     created._usr = _usr;

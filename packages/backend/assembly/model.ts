@@ -77,7 +77,10 @@ export class TroveMgr {
   constructor() {}
 
   getTotalFees(): Amount {
-    return storage.get<u128>("fees", u128.Zero);
+    if (storage.contains("fees"))
+      return storage.getSome<u128>("fees");
+    else
+      return u128.Zero;
   }
 
   getTotalStakes(): u128 {
@@ -106,16 +109,16 @@ export class TroveMgr {
     return index;
   }
 
-  getStatus( _usr: AccountId ): u16 {
+  getStatus( _usr: AccountId ): Status {
     let trove: Trove;
     if( Troves.contains(_usr) ) {
       trove = Troves.getSome(_usr);
-      return <u16> trove.status;
+      return trove.status;
     }
-    return <u16> Status.nonExistent;
+    return Status.nonExistent;
   }
   
-  setStatus( _usr: AccountId, _num: u16 ): void {
+  setStatus( _usr: AccountId, _num: u8 ): void {
     let trove = this.getTrove(_usr);
     
     if ( _num == 1 ) trove.status = Status.active;
